@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import scipy.signal
 import datetime
 
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 import os.path
 
 #from scipy.io import netcdf
@@ -830,13 +832,21 @@ class LidarProfile():
         
     def divide_prof(self,denom_profile):
         """
-        Divides the current profile by another lidar profile (denom_prof)
+        Divides the current profile by another lidar profile (denom_profile)
         Propagates the profile error from the operation.
         """
         SNRnum = self.SNR()
         SNRden = denom_profile.SNR()
-        self.profile = self.profile/denom_profile
+        self.profile = self.profile/denom_profile.profile
         self.profile_variance = self.profile**2*(1/SNRnum**2+1/SNRden**2)
+        
+    def multiply_prof(self,profile2):
+        """
+        multiplies the current profile by another lidar profile (profile2)
+        Propagates the profile error from the operation.
+        """
+        self.profile = self.profile*profile2.profile
+        self.profile_variance = self.profile**2*profile2.profile_variance+self.profile_variance*profile2.profile**2
         
     def write2nc(self,ncfilename,tag='',name_override=False):
         """
@@ -975,7 +985,7 @@ def create_ncfilename(ncbase,Years,Months,Days,Hours):
 
 def load_geofile(filename):
     geo = np.loadtxt(filename)
-    return geo;
+    return geo
     
 def load_diff_geofile(filename,chan='backscatter'):
     diff_geo0 = np.loadtxt(filename)
@@ -983,7 +993,7 @@ def load_diff_geofile(filename,chan='backscatter'):
         diff_geo = {'bins':diff_geo0[:,0],'hi':1.0/diff_geo0[:,1],'lo':1.0/diff_geo0[:,2]}
     else:
         diff_geo = {'bins':diff_geo0[:,0],'cross':1.0/diff_geo0[:,1]}
-    return diff_geo;
+    return diff_geo
     
 def ncvar(ncID,varname):
     var = np.array(ncID.variables[varname].data.copy())
@@ -1003,6 +1013,109 @@ def plotprofiles(proflist,varplot=False):
         plt.legend()
         plt.ylabel('Range [m]')
         plt.xlabel(p1.profile_type)
+        
+def pcolor_profiles(proflist,ylimits=[0,np.nan],tlimits=[np.nan,np.nan],plotAsDays=False,scale=[]):
+    """
+    plot time and range resolved profiles as pcolors
+    proflist - a list of lidar profiles
+    ylimits - list containing upper and lower bounds of plots in km
+    tlimits - list containing upper and lower bounds of plots in hr
+    """
+    
+    Nprof = len(proflist)*1.0
+    if plotAsDays:
+        time_scale = 3600*24.0
+        span_scale = 24.0
+    else:
+        time_scale = 3600.0
+        span_scale = 1.0
+    
+    tmin = 1e9
+    tmax = 0
+    ymin = 1e9
+    ymax = 0
+    
+    for ai in range(len(proflist)):
+        tmin = np.min(np.array([tmin,proflist[ai].time[0]/time_scale]))
+        tmax = np.max(np.array([tmax,proflist[ai].time[-1]/time_scale]))
+        ymin = np.min(np.array([ymin,proflist[ai].range_array[0]*1e-3]))
+        ymax = np.max(np.array([ymax,proflist[ai].range_array[-1]*1e-3]))
+    if np.isnan(tlimits[0]):
+        tlimits[0] = tmin
+    if np.isnan(tlimits[1]):
+        tlimits[1] = tmax
+    if np.isnan(ylimits[0]):
+        ylimits[0] = ymin
+    if np.isnan(ylimits[1]):
+        ylimits[1] = ymax
+        
+    # scale figure dimensions based on time and altitude dimensions
+    time_span = tlimits[1]/span_scale-tlimits[0]/span_scale  # time domain of plotted data
+    range_span = ylimits[1]-ylimits[0]  # range domain of plotted data
+    
+    # adjust title line based on the amount of plotted time data
+    if time_span < 8.0:
+        # short plots (in time)
+        line_char = '\n'  # include a newline to fit full title
+        y_top_edge = 1.2  # top edge set for double line title
+        title_font_size = 12  # use larger title font
+    elif time_span <= 16.0:
+        # medium plots (in time)
+        line_char = ' '  # no newline in title
+        y_top_edge = 0.9  # top edge set for single line title
+        title_font_size = 12  # use smaller title font
+    else:
+        # long plots (in time)
+        line_char = ' '  # no newline in title
+        y_top_edge = 0.9  # top edge set for single line title
+        title_font_size = 16  # use larger title font
+    
+    max_len = 18.0
+    min_len = 2.0
+    max_h = 8.0
+    min_h = 0.2
+    x_left_edge =1.0
+    x_right_edge = 2.0
+    y_bottom_edge = 0.6
+
+    
+    ax_len = np.max(np.array([np.min(np.array([max_len,time_span*18.0/24.0])),min_len])) # axes length
+    ax_h = np.max(np.array([np.min(np.array([max_h,range_span*2.1/12])),min_h]))  # axes height
+    fig_len = x_left_edge+x_right_edge+ax_len  # figure length
+    fig_h =y_bottom_edge+y_top_edge+ax_h  # figure height
+    
+    figL = []  # figure list
+    axL = []   # axes list
+    caxL = []  # color axes list
+    imL = []   # image list
+        
+    for ai in range(len(proflist)): 
+        axlim = [x_left_edge/fig_len,y_bottom_edge/fig_h/Nprof+(Nprof-ai-1)/Nprof,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/Nprof]
+#        axlim3 = [[x_left_edge/fig_len,y_bottom_edge/fig_h/3.0+2.0/3.0,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/3.0], \
+#        [x_left_edge/fig_len,y_bottom_edge/fig_h/3.0+1.0/3.0,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/3.0], \
+#        [x_left_edge/fig_len,y_bottom_edge/fig_h/3.0+0.0/3.0,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/3.0]]
+    
+        fig = plt.figure(figsize=(fig_len,Nprof*fig_h)); # plt.figure(figsize=(15,5))
+        ax = plt.axes(axlim) 
+        im = plt.pcolor(proflist[ai].time/time_scale,proflist[ai].range_array*1e-3,np.log10(proflist[ai].profile).T)
+        plt.clim([-8,-4])
+        plt.ylim(ylimits)
+        plt.xlim(tlimits/time_scale)
+        plt.title(DateLabel + ', ' +proflist[ai].lidar + line_char + proflist[ai].profile_type,fontsize=title_font_size)
+        plt.ylabel('Altitude AGL [km]')
+        if plotAsDays:
+            plt.xlabel('Days [UTC]')
+        else:
+            plt.xlabel('Time [UTC]')
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right",size=0.1,pad=0.2)
+        plt.colorbar(im,cax=cax)
+        
+        figL.extend([fig])
+        axL.extend([ax])
+        caxL.extend([cax])
+        imL.extend([imL])
+        
         
 def read_WVDIAL_binary(filename,MCSbins):    
     """
@@ -1073,6 +1186,32 @@ def generate_WVDIAL_day_list(startYr,startMo,startDay,startHr=0,duration=0.0,sto
         
     return YrList,MoList,DayList,HrList
     
+def AerosolBackscatter(MolProf,CombProf,Sonde,negfilter=True):
+    """
+    Calculate the Aerosol Backscatter Coeffcient LidarProfiles: Molecular and Combined Channels
+    Expects a 2d sonde profile that has the same dimensions as the Molecular and combined channels
+    
+    Set negfilter = False to avoid filtering out negative values
+    """
+    
+    Beta_AerBS = MolProf.copy()
+
+    # calculate backscatter ratio
+    BSR = CombProf.profile/MolProf.profile
+    
+#    Beta_AerBS.profile = (BSR-1)*beta_m_sonde[np.newaxis,:]    # only aerosol backscatter
+    Beta_AerBS.profile = (BSR.copy()-1)
+    Beta_AerBS.profile_variance = MolProf.profile_variance*(CombProf.profile)**2/(MolProf.profile)**4+CombProf.profile_variance*1/(MolProf.profile)**2
+    Beta_AerBS.multiply_prof(Sonde)    
+    
+    Beta_AerBS.descript = 'Calibrated Measurement of Aerosol Backscatter Coefficient in m^-1 sr^-1'
+    Beta_AerBS.label = 'Aerosol Backscatter Coefficient'
+    Beta_AerBS.profile_type = 'Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]'
+    
+    if negfilter:
+        Beta_AerBS.profile[np.nonzero(Beta_AerBS.profile <= 0)] = 1e-10;
+    
+    return Beta_AerBS
         
 def Calc_AerosolBackscatter(MolProf,CombProf,Temp = np.array([np.nan]),Pres = np.array([np.nan]),negfilter=True,beta_sonde_scale=1.0):
     """
@@ -1811,14 +1950,16 @@ def get_beta_m_sonde(Profile,Years,Months,Days,sonde_basepath,interp=False):
                 MonthStr = str(Months[ai])
             ### Grab Sonde Data
             sondefilename = '/scr/eldora1/HSRL_data/'+YearStr+'/'+MonthStr+'/sondes.DNR.nc'
+            
+            print('Accessing %s' %sondefilename)
             #(Man or SigT)
 #            f = netcdf.netcdf_file(sondefilename, 'r')
             f = nc4.Dataset(sondefilename,'r')
-            TempDat = f.variables['tpSigT'].data.copy()  # Kelvin
-            PresDat = f.variables['prSigT'].data.copy()*100.0  # hPa - convert to Pa (or Man or SigT)
-            SondeTime = f.variables['relTime'].data.copy() # synoptic time: Seconds since (1970-1-1 00:00:0.0) 
-            SondeAlt = f.variables['htSigT'].data.copy()  # geopotential altitude in m
-            StatElev = f.variables['staElev'].data.copy()  # launch elevation in m
+            TempDat = f.variables['tpSigT'][:].copy()  # Kelvin
+            PresDat = f.variables['prSigT'][:].copy()*100.0  # hPa - convert to Pa (or Man or SigT)
+            SondeTime = f.variables['relTime'][:].copy() # synoptic time: Seconds since (1970-1-1 00:00:0.0) 
+            SondeAlt = f.variables['htSigT'][:].copy()  # geopotential altitude in m
+            StatElev = f.variables['staElev'][:].copy()  # launch elevation in m
             f.close()
             
         elif Months[ai-1] != Months[ai]:
@@ -1833,11 +1974,11 @@ def get_beta_m_sonde(Profile,Years,Months,Days,sonde_basepath,interp=False):
             #(Man or SigT)
 #            f = netcdf.netcdf_file(sondefilename, 'r')
             f = nc4.Dataset(sondefilename,'r')
-            TempDat = np.hstack((TempDat,f.variables['tpSigT'].data.copy()))  # Kelvin
-            PresDat = np.hstack((f.variables['prSigT'].data.copy()*100.0))  # hPa - convert to Pa (or Man or SigT)
-            SondeTime = np.concatenate((SondeTime,f.variables['relTime'].data.copy())) # synoptic time: Seconds since (1970-1-1 00:00:0.0) 
-            SondeAlt = np.hstack((SondeAlt,f.variables['htSigT'].data.copy()))  # geopotential altitude in m
-            StatElev = np.concatenate((StatElev,f.variables['staElev'].data.copy()))  # launch elevation in m
+            TempDat = np.hstack((TempDat,f.variables['tpSigT'][:].copy()))  # Kelvin
+            PresDat = np.hstack((f.variables['prSigT'][:].copy()*100.0))  # hPa - convert to Pa (or Man or SigT)
+            SondeTime = np.concatenate((SondeTime,f.variables['relTime'][:].copy())) # synoptic time: Seconds since (1970-1-1 00:00:0.0) 
+            SondeAlt = np.hstack((SondeAlt,f.variables['htSigT'][:].copy()))  # geopotential altitude in m
+            StatElev = np.concatenate((StatElev,f.variables['staElev'][:].copy()))  # launch elevation in m
             f.close()
         
         
@@ -1855,44 +1996,56 @@ def get_beta_m_sonde(Profile,Years,Months,Days,sonde_basepath,interp=False):
         # obtain sonde date/time in datetime format
         sonde_datetime.extend([sonde_datetime0+datetime.timedelta(SondeTime[ai]/(3600*24))])
         # calculate the sonde launch time in profile time
-        tref[ai] =  (sonde_datetime[ai]-StartDate).total_seconds()
+        tref[ai] =  (sonde_datetime[ai]-StartDateTime).total_seconds()
         
     # find the sonde index that best matches the time of the profile
-    sonde_index_prof = np.argmin(np.abs(Profile.time[np.newaxis,:]-tref[:,np.newaxis]),axis=1)
-    sonde_index = np.argmin(np.abs(Profile.time[np.newaxis,:]-tref[:,np.newaxis]),axis=0)
-    sonde_index_u = np.unique(sonde_index)
+    sonde_index_prof = np.argmin(np.abs(Profile.time[np.newaxis,:]-tref[:,np.newaxis]),axis=1)  # profile index for a given sonde launch
+    sonde_index = np.argmin(np.abs(Profile.time[np.newaxis,:]-tref[:,np.newaxis]),axis=0)  # sonde index for a given profile
+    sonde_index_u = np.unique(sonde_index)  # unique list of sonde launches used to build the profle
     
     
     beta_m_sonde = np.zeros(Profile.profile.shape)   
     
     if interp:
-        Tsonde = np.zeros(sonde_index_u.size,Profile.range_array.size)
-        Psonde = np.zeros(sonde_index_u.size,Profile.range_array.size)
-        
         # if possible, add additional endpoints to ensure interpolation
         if np.min(sonde_index_u) > 0:
             sonde_index_u = np.concatenate((np.array([np.min(sonde_index_u)-1]),sonde_index_u))
         if np.max(sonde_index_u) < sonde_index.size:
-            sonde_index_u = np.concatenate((sonde_index_u,np.array([np.min(sonde_index_u)+1])))
+            sonde_index_u = np.concatenate((sonde_index_u,np.array([np.max(sonde_index_u)+1])))
+            
+        Tsonde = np.zeros((sonde_index_u.size,Profile.range_array.size))
+        Psonde = np.zeros((sonde_index_u.size,Profile.range_array.size))
         
         for ai in range(sonde_index_u.size):
             Tsonde[ai,:] = np.interp(Profile.range_array,SondeAlt[sonde_index_u[ai],:]-StatElev[sonde_index_u[ai]],TempDat[sonde_index_u[ai],:])
             Psonde[ai,:] = np.interp(Profile.range_array,SondeAlt[sonde_index_u[ai],:]-StatElev[sonde_index_u[ai]],PresDat[sonde_index_u[ai],:])
             
         for ai in range(Profile.range_array.size):
-            TsondeR = np.interp(Profile.time,tref,Tsonde[:,ai])
-            PsondeR = np.interp(Profile.time,tref,Psonde[:,ai])
-            beta_m_sonde = 5.45*(550.0/Profile.wavelength)**4*1e-32*PsondeR/(TsondeR*kB)
+            TsondeR = np.interp(Profile.time,tref[sonde_index_u],Tsonde[:,ai])
+            PsondeR = np.interp(Profile.time,tref[sonde_index_u],Psonde[:,ai])
+            beta_m_sonde[:,ai] = 5.45*(550.0e-9/Profile.wavelength)**4*1e-32*PsondeR/(TsondeR*kB)
     else:
     
         for ai in range(sonde_index_u.size):
             Tsonde = np.interp(Profile.range_array,SondeAlt[sonde_index_u[ai],:]-StatElev[sonde_index_u[ai]],TempDat[sonde_index_u[ai],:])
             Psonde = np.interp(Profile.range_array,SondeAlt[sonde_index_u[ai],:]-StatElev[sonde_index_u[ai]],PresDat[sonde_index_u[ai],:])
-            beta_m_sondes0 = 5.45*(550.0/Profile.wavelength)**4*1e-32*Psonde/(Tsonde*kB)
+            beta_m_sondes0 = 5.45*(550.0e-9/Profile.wavelength)**4*1e-32*Psonde/(Tsonde*kB)
             ifill = np.nonzero(sonde_index==sonde_index_u[ai])[0]
             beta_m_sonde[ifill,:] = beta_m_sondes0[np.newaxis,:]*np.ones((ifill.size,beta_m_sondes0.size))
-       
-    return beta_m_sonde,tref
+    beta_mol = Profile.copy()
+    beta_mol.profile = beta_m_sonde
+    beta_mol.profile_variance = (beta_mol.profile*0.01)**2  # force SNR of 100 in sonde profile.
+    beta_mol.ProcessingStatus = []     # status of highest level of lidar profile - updates at each processing stage
+
+    beta_mol.diff_geo_Refs = ['none']           # list containing the differential geo overlap reference sources (answers: differential to what?)
+    beta_mol.profile_type =  'Sonde Estimated Molecular Backscatter Coefficient [$m^{-1}sr^{-1}$]'
+    
+    beta_mol.bg = np.zeros(beta_mol.bg.shape) # profile background levels
+    
+    beta_mol.descript = 'Sonde Estimated Molecular Backscatter Coefficient in m^-1 sr^-1'
+    beta_mol.label = 'Molecular Backscatter Coefficient'
+
+    return beta_mol,tref,sonde_index_u
     
     #beta_m_sondes0 = 5.45*(550.0/Molecular.wavelength)**4*1e-32*PresDat[sonde_index_u,:]/(TempDat[sonde_index_u,:]*lp.kB)
     
