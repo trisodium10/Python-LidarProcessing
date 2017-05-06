@@ -42,7 +42,7 @@ range can be calculed from the profile bin widths
 Methods are written in order in which they are expected to be applied.
 """
 class LidarProfile():
-    def __init__(self,profile,time,label='none',descript='none',lidar='none',bin0=0,shot_count=np.array([]),binwidth=0,wavelength=0):
+    def __init__(self,profile,time,label='none',descript='none',lidar='none',bin0=0,shot_count=np.array([]),binwidth=0,wavelength=0,StartDate=datetime.date(1970,1,1)):
         if hasattr(profile,'binwidth_ns'):
             if profile.binwidth_ns == 0:
                 if (lidar == 'GV-HSRL' or lidar == 'gv-hsrl'):
@@ -112,6 +112,7 @@ class LidarProfile():
         self.label = label                      # label for profile (used in error messages to identify the profile)
         self.descript = descript                # description of profile
         self.lidar = lidar                      # name of lidar corresponding to this profile
+        self.StartDate = StartDate              # start date of the profile
         
         self.ProcessingStatus = ['Raw Data']    # status of highest level of lidar profile - updates at each processing stage
         self.profile_variance = self.profile+1  # variance of the highest level lidar profile      
@@ -696,6 +697,7 @@ class LidarProfile():
         NewProfile.mean_dR = self.mean_dR       # binwidth in range [m]
         
         NewProfile.time = self.time.copy()
+        NewProfile.StartDate = self.StartDate
         NewProfile.binwidth_ns = self.binwidth_ns
         NewProfile.NumProfList = self.NumProfList
         NewProfile.shot_count = self.shot_count
@@ -720,6 +722,7 @@ class LidarProfile():
                 self.bg_var = np.concatenate((NewProfile.bg_var,self.bg_var))
                 self.shot_count = np.concatenate((NewProfile.shot_count,self.shot_count))
                 self.NumProfList = np.concatenate((NewProfile.NumProfList,self.NumProfList))
+                self.StartDate = NewProfile.StartDate  # use start date of the first profile
             else:
                 # Concatenate NewProfile in the back
                 self.time = np.concatenate((self.time,NewProfile.time))
@@ -869,7 +872,7 @@ class LidarProfile():
             fnc.createDimension('time',self.time.size)
             timeNC = fnc.createVariable('time','f',('time',))
             timeNC[:] = self.time.copy()
-            timeNC.units = 'seconds since 0000 UTC'
+            timeNC.units = 'seconds since 0000 UTC on ' + self.StartDate.strftime("%A %B %d, %Y")
         elif fnc.dimensions['time'].size != self.time.size:
             print('Error in %s write2nc to %s ' %(self.label,ncfilename))
             print('  time dimension exists in %s but has size=%d'%(ncfilename,fnc.dimensions['time'].size))
@@ -891,6 +894,7 @@ class LidarProfile():
             wavelengthNC[:] = self.wavelength
             wavelengthNC.units = 'meters'
             
+
         ###
         # Additional Checks needed to make sure the time and range arrays are identical to what is in the data    
         ###
@@ -1014,21 +1018,39 @@ def plotprofiles(proflist,varplot=False):
         plt.ylabel('Range [m]')
         plt.xlabel(p1.profile_type)
         
-def pcolor_profiles(proflist,ylimits=[0,np.nan],tlimits=[np.nan,np.nan],plotAsDays=False,scale=[]):
+def pcolor_profiles(proflist,ylimits=[0,np.nan],tlimits=[np.nan,np.nan],climits=[],plotAsDays=False,scale=[]):
     """
+    pcolor_profiles(proflist,ylimits=[0,np.nan],tlimits=[np.nan,np.nan],climits=[],plotAsDays=False,scale=[])
+    
     plot time and range resolved profiles as pcolors
     proflist - a list of lidar profiles
     ylimits - list containing upper and lower bounds of plots in km
-    tlimits - list containing upper and lower bounds of plots in hr
+    tlimits - list containing upper and lower bounds of plots in days or hours (plotAsDays=True or plotAsDays=False)
+    climits - list containing a list of the colorbar limits.  e.g. [[0,5],[4,10]] for two profiles.
+            if the list of limits includes a nan, that profile will use the default scale
+    plotAsDays - True: sets the time axis units as days
+                 False: sets the time axis as hours
+    scale - a list containing the desired scale for the plots.  set to 'linear' or 'log'.  Defaults to 'log'
     """
     
-    Nprof = len(proflist)*1.0
+    Nprof = np.double(len(proflist))
     if plotAsDays:
         time_scale = 3600*24.0
         span_scale = 24.0
     else:
         time_scale = 3600.0
         span_scale = 1.0
+      
+    # if scale is not provided or it is not provided for all profiles
+    # assign the not provided plots with a log scale
+    if len(scale) < len(proflist):
+        scale.extend(['log']*(len(proflist)-len(scale)))
+       
+    # if the color scale limits is not provided or not enough color scale 
+    # entries are provided, set the color limits to auto (nan = auto)
+    if len(climits) < len(proflist):
+        climits.extend([[np.nan,np.nan]]*(len(proflist)-len(scale)))
+    
     
     tmin = 1e9
     tmax = 0
@@ -1084,24 +1106,29 @@ def pcolor_profiles(proflist,ylimits=[0,np.nan],tlimits=[np.nan,np.nan],plotAsDa
     fig_len = x_left_edge+x_right_edge+ax_len  # figure length
     fig_h =y_bottom_edge+y_top_edge+ax_h  # figure height
     
-    figL = []  # figure list
     axL = []   # axes list
     caxL = []  # color axes list
     imL = []   # image list
+    
+    fig = plt.figure(figsize=(fig_len,Nprof*fig_h))
         
     for ai in range(len(proflist)): 
         axlim = [x_left_edge/fig_len,y_bottom_edge/fig_h/Nprof+(Nprof-ai-1)/Nprof,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/Nprof]
-#        axlim3 = [[x_left_edge/fig_len,y_bottom_edge/fig_h/3.0+2.0/3.0,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/3.0], \
-#        [x_left_edge/fig_len,y_bottom_edge/fig_h/3.0+1.0/3.0,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/3.0], \
-#        [x_left_edge/fig_len,y_bottom_edge/fig_h/3.0+0.0/3.0,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/3.0]]
-    
-        fig = plt.figure(figsize=(fig_len,Nprof*fig_h)); # plt.figure(figsize=(15,5))
+   
+        
         ax = plt.axes(axlim) 
-        im = plt.pcolor(proflist[ai].time/time_scale,proflist[ai].range_array*1e-3,np.log10(proflist[ai].profile).T)
-        plt.clim([-8,-4])
+        if scale[ai] == 'log':
+            im = plt.pcolor(proflist[ai].time/time_scale,proflist[ai].range_array*1e-3,np.real(np.log10(proflist[ai].profile)).T)
+        else:
+            im = plt.pcolor(proflist[ai].time/time_scale,proflist[ai].range_array*1e-3,proflist[ai].profile.T)
+       
+        if not any(np.isnan(climits[ai])):
+            plt.clim(climits[ai])  # if no nans in color limits, apply to the plot.  otherwise go with the auto scale
+            
         plt.ylim(ylimits)
-        plt.xlim(tlimits/time_scale)
-        plt.title(DateLabel + ', ' +proflist[ai].lidar + line_char + proflist[ai].profile_type,fontsize=title_font_size)
+        plt.xlim(np.array(tlimits))
+        DateLabel = proflist[ai].StartDate.strftime("%A %B %d, %Y")
+        plt.title(DateLabel + ', ' +proflist[ai].lidar + line_char + proflist[ai].label +' [' + proflist[ai].profile_type + ']',fontsize=title_font_size)
         plt.ylabel('Altitude AGL [km]')
         if plotAsDays:
             plt.xlabel('Days [UTC]')
@@ -1111,10 +1138,11 @@ def pcolor_profiles(proflist,ylimits=[0,np.nan],tlimits=[np.nan,np.nan],plotAsDa
         cax = divider.append_axes("right",size=0.1,pad=0.2)
         plt.colorbar(im,cax=cax)
         
-        figL.extend([fig])
         axL.extend([ax])
         caxL.extend([cax])
         imL.extend([imL])
+        
+    return fig,axL,caxL,imL
         
         
 def read_WVDIAL_binary(filename,MCSbins):    
@@ -1206,7 +1234,7 @@ def AerosolBackscatter(MolProf,CombProf,Sonde,negfilter=True):
     
     Beta_AerBS.descript = 'Calibrated Measurement of Aerosol Backscatter Coefficient in m^-1 sr^-1'
     Beta_AerBS.label = 'Aerosol Backscatter Coefficient'
-    Beta_AerBS.profile_type = 'Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]'
+    Beta_AerBS.profile_type = '$m^{-1}sr^{-1}$'
     
     if negfilter:
         Beta_AerBS.profile[np.nonzero(Beta_AerBS.profile <= 0)] = 1e-10;
@@ -1249,7 +1277,7 @@ def Calc_AerosolBackscatter(MolProf,CombProf,Temp = np.array([np.nan]),Pres = np
     
     Beta_AerBS.descript = 'Calibrated Measurement of Aerosol Backscatter Coefficient in m^-1 sr^-1'
     Beta_AerBS.label = 'Aerosol Backscatter Coefficient'
-    Beta_AerBS.profile_type = 'Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]'
+    Beta_AerBS.profile_type = '$m^{-1}sr^{-1}$'
     
     if negfilter:
         Beta_AerBS.profile[np.nonzero(Beta_AerBS.profile <= 0)] = 1e-10;
@@ -1265,7 +1293,7 @@ def Calc_Extinction(MolProf,MolConvFactor = 1.0,Temp = np.array([np.nan]),Pres =
     
     OptDepth.descript = 'Optical Depth of the altitude Profile starting at lidar base'
     OptDepth.label = 'Optical Depth'
-    OptDepth.profile_type = 'Optical Depth'
+    OptDepth.profile_type = ''
     
     if np.isnan(Temp).any() or np.isnan(Pres).any():
         if np.isnan(Temp[0]):
@@ -1300,7 +1328,7 @@ def Calc_Extinction(MolProf,MolConvFactor = 1.0,Temp = np.array([np.nan]),Pres =
     
     Alpha.descript = 'Atmospheric Extinction Coefficient in m^-1'
     Alpha.label = 'Extinction Coefficient'
-    Alpha.profile_type = 'Extinction Coefficient [$m^{-1}$]'
+    Alpha.profile_type = '$m^{-1}$'
     
     return Alpha,OptDepth,ODmol    
 
@@ -1391,12 +1419,12 @@ def Retrieve_Ext_MLE(OptDepth,aer_beta,ODmol,blocksize=8,overlap=0,SNR_th=1.1,la
     Extinction = OptDepth.copy()
     Extinction.descript = 'Atmospheric Extinction Coefficient in m^-1 retrieved with MLE'
     Extinction.label = 'Extinction Coefficient'
-    Extinction.profile_type = 'Extinction Coefficient [$m^{-1}$]'
+    Extinction.profile_type = '$m^{-1}$'
     
     LidarRatio = OptDepth.copy()
     LidarRatio.descript = 'Atmospheric LidarRatio in sr retrieved with MLE'
     LidarRatio.label = 'LidarRatio'
-    LidarRatio.profile_type = 'LidarRatio [$sr}$]'
+    LidarRatio.profile_type = '$sr$'
     
     OptDepthMLE = OptDepth.copy()
     OptDepthMLE.descript = 'Optical Depth of the altitude Profile starting at lidar base, determined with MLE'
@@ -1661,8 +1689,8 @@ def Klett_Inv(Comb,RefAlt,Temp = np.array([np.nan]),Pres = np.array([np.nan]),av
     
     Beta_AerBS = CombK.copy()
     Beta_AerBS.descript = 'Klett Estimate of Aerosol Backscatter Coefficient in m^-1 sr^-1\n using a %d m Reference Altitude\n '%RefAlt
-    Beta_AerBS.label = 'Aerosol Backscatter Estimate'
-    Beta_AerBS.profile_type = 'Klett estimated Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]' 
+    Beta_AerBS.label = 'Klett Aerosol Backscatter Estimate'
+    Beta_AerBS.profile_type = '$m^{-1}sr^{-1}$' 
     Beta_AerBS.profile_variance = np.zeros(Beta_AerBS.profile_variance.shape)
     
     sigK = np.zeros(Sc.shape)
@@ -1891,7 +1919,7 @@ def WV_ExtinctionFromHITRAN(nu,TempProf,PresProf,filename='',freqnorm=False,nuLi
     
     
     # calculate the absorption cross section at each range
-    for ai in range(np.size(TempProf)): 
+    for ai in range((TempProf.size)): 
         #    %calculate the pressure shifts for selected lines as function of range
         hitran_nu0 = hitran_nu0_0+hitran_delta*(PresProf[ai]/hitran_P00); # unclear if it should be Pi/P00
         hitran_gammal = hitran_gammal0*(PresProf[ai]/hitran_P00)*((hitran_T00/TempProf[ai])**hitran_alpha);    # Calculate Lorentz lineweidth at P(i) and T(i)
@@ -1922,7 +1950,7 @@ def WV_ExtinctionFromHITRAN(nu,TempProf,PresProf,filename='',freqnorm=False,nuLi
     ExtinctionProf = (1e-2)*voigt_sigmav_f;  # convert to m^2
     return ExtinctionProf
     
-def get_beta_m_sonde(Profile,Years,Months,Days,sonde_basepath,interp=False):
+def get_beta_m_sonde(Profile,Years,Months,Days,sonde_basepath,interp=False,returnTP=False):
     """
     Returns a 2D array containing the expected molecular backscatter component
     
@@ -1932,6 +1960,10 @@ def get_beta_m_sonde(Profile,Years,Months,Days,sonde_basepath,interp=False):
     StopDateTime - only needed to make sure and get all the right sonde files
         set by datetime.datetime(Years[-1],Months[-1],Days[-1],0)  
     
+    interp (False).  If True, interpolates profiles in time
+    returnTP (False).  If True, returns teemperature and pressure profiles
+        if interp is also True, those profiles are also interpolated
+        
     """
     
     # brute force step through and load each month's data
@@ -2010,9 +2042,9 @@ def get_beta_m_sonde(Profile,Years,Months,Days,sonde_basepath,interp=False):
         # if possible, add additional endpoints to ensure interpolation
         if np.min(sonde_index_u) > 0:
             sonde_index_u = np.concatenate((np.array([np.min(sonde_index_u)-1]),sonde_index_u))
-        if np.max(sonde_index_u) < sonde_index.size:
+        if np.max(sonde_index_u) < SondeTime.size-1:
             sonde_index_u = np.concatenate((sonde_index_u,np.array([np.max(sonde_index_u)+1])))
-            
+
         Tsonde = np.zeros((sonde_index_u.size,Profile.range_array.size))
         Psonde = np.zeros((sonde_index_u.size,Profile.range_array.size))
         
@@ -2033,39 +2065,51 @@ def get_beta_m_sonde(Profile,Years,Months,Days,sonde_basepath,interp=False):
             ifill = np.nonzero(sonde_index==sonde_index_u[ai])[0]
             beta_m_sonde[ifill,:] = beta_m_sondes0[np.newaxis,:]*np.ones((ifill.size,beta_m_sondes0.size))
     beta_mol = Profile.copy()
-    beta_mol.profile = beta_m_sonde
+    beta_mol.profile = beta_m_sonde.copy()
     beta_mol.profile_variance = (beta_mol.profile*0.01)**2  # force SNR of 100 in sonde profile.
     beta_mol.ProcessingStatus = []     # status of highest level of lidar profile - updates at each processing stage
-
+    beta_mol.lidar = 'sonde'
+    
     beta_mol.diff_geo_Refs = ['none']           # list containing the differential geo overlap reference sources (answers: differential to what?)
-    beta_mol.profile_type =  'Sonde Estimated Molecular Backscatter Coefficient [$m^{-1}sr^{-1}$]'
+    beta_mol.profile_type =  '$m^{-1}sr^{-1}$'
     
     beta_mol.bg = np.zeros(beta_mol.bg.shape) # profile background levels
     
     beta_mol.descript = 'Sonde Estimated Molecular Backscatter Coefficient in m^-1 sr^-1'
     beta_mol.label = 'Molecular Backscatter Coefficient'
-
-    return beta_mol,tref,sonde_index_u
     
-    #beta_m_sondes0 = 5.45*(550.0/Molecular.wavelength)**4*1e-32*PresDat[sonde_index_u,:]/(TempDat[sonde_index_u,:]*lp.kB)
+    if not returnTP:
+        return beta_mol,tref,sonde_index_u
     
-#    pres_func = scipy.interpolate.interp2d(tref[sonde_index_u,np.newaxis]*np.ones(SondeAlt[sonde_index_u,:].shape),SondeAlt[sonde_index_u,:]-StatElev[sonde_index_u,np.newaxis],np.log10(PresDat[sonde_index_u,:]))    
-#    temp_func = scipy.interpolate.interp2d(tref[sonde_index_u,np.newaxis]*np.ones(SondeAlt[sonde_index_u,:].shape),SondeAlt[sonde_index_u,:]-StatElev[sonde_index_u,np.newaxis],TempDat[sonde_index_u,:])  
-#    #beta_m_func = scipy.interpolate.interp2d(tref[sonde_index_u,np.newaxis]*np.ones(SondeAlt[sonde_index_u,:].shape),SondeAlt[sonde_index_u,:]-StatElev[sonde_index_u,np.newaxis],beta_m_sondes0)    
-#    
-#    rr,tt = np.meshgrid(Profile.range_array,Profile.time)
-#    beta_m_sonde_func = 5.45*(550.0/Molecular.wavelength)**4*1e-32*10**(pres_func(tt.flatten(),rr.flatten()))/(temp_func(tt.flatten(),rr.flatten())*lp.kB)
+    else:
     
+        temp = Profile.copy()
+        temp.profile = Tsonde.copy()
+        temp.profile_variance = (temp.profile*0.01)**2  # force SNR of 100 in sonde profile.
+        temp.ProcessingStatus = []     # status of highest level of lidar profile - updates at each processing stage
+        temp.lidar = 'sonde'
+        
+        temp.diff_geo_Refs = ['none']           # list containing the differential geo overlap reference sources (answers: differential to what?)
+        temp.profile_type =  '$K$'
+        
+        temp.bg = np.zeros(temp.bg.shape) # profile background levels
+        
+        temp.descript = 'Sonde Measured Temperature in K'
+        temp.label = 'Temperature'
+        
+        pres = Profile.copy()
+        pres.profile = Psonde.copy()
+        pres.profile_variance = (pres.profile*0.01)**2  # force SNR of 100 in sonde profile.
+        pres.ProcessingStatus = []     # status of highest level of lidar profile - updates at each processing stage
+        pres.lidar = 'sonde'
+        
+        pres.diff_geo_Refs = ['none']           # list containing the differential geo overlap reference sources (answers: differential to what?)
+        pres.profile_type =  '$Pa$'
+        
+        temp.bg = np.zeros(temp.bg.shape) # profile background levels
+        
+        temp.descript = 'Sonde Measured Pressure in Pa'
+        temp.label = 'Pressure'
     
+        return beta_mol,tref,sonde_index_u,temp,pres
     
-##    sonde_index = np.min([np.shape(SondeAlt)[0]-1,sonde_index])
-#    Tsonde = np.interp(CombHi.range_array,SondeAlt[sonde_index,:]-StatElev[sonde_index],TempDat[sonde_index,:])
-#    Psonde = np.unique(isonde)
-#    # Obtain sonde data for backscatter coefficient estimation
-#    Tsonde = np.interp(CombHi.range_array,SondeAlt[sonde_index,:]-StatElev[sonde_index],TempDat[sonde_index,:])
-#    Psonde = np.interp(CombHi.range_array,SondeAlt[sonde_index,:]-StatElev[sonde_index],PresDat[sonde_index,:])
-    
-    
-    
-#    # note the operating wavelength of the lidar is 532 nm
-#    beta_m_sonde = sonde_scale*5.45*(550.0/780.24)**4*1e-32*Psonde/(Tsonde*lp.kB)
