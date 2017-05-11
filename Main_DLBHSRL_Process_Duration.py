@@ -29,8 +29,8 @@ getMLE_extinction = False
 run_MLE = False
 runKlett = False
 
-save_as_nc = True
-save_figs = True
+save_as_nc = False
+save_figs = False
 
 nctag = ''  # additional tag for netcdf and figure filename
 
@@ -427,9 +427,12 @@ else:
 # climits=[[-8,-4]] for clouds and aerosols
 # climits=[[-7.4,-6.0]] for aerosols
 lp.pcolor_profiles([aer_beta_dlb],climits=[[-7.4,-6.0]],plotAsDays=plotAsDays)    
-    
 if save_figs:
-    plt.savefig(figfilename+'_AerosolBackscatter.png')    
+    plt.savefig(figfilename+'_AerosolBackscatter_Aerosol_Colorbar.png')   
+
+lp.pcolor_profiles([aer_beta_dlb],climits=[[-8.0,-4.0]],plotAsDays=plotAsDays)    
+if save_figs:
+    plt.savefig(figfilename+'_AerosolBackscatter.png')
     
 
 if runKlett:       
@@ -457,26 +460,6 @@ if save_figs:
 lp.pcolor_profiles([aer_beta_dlb,CombHi],climits=[[-8,-4],[8,12]],plotAsDays=plotAsDays)  
 if save_figs:
     plt.savefig(figfilename+'_AerosolBackscatter_and_CombinedBackscatter.png')
-
-
-if getMLE_extinction:
-    # initialization dependent on the aerosol backscatter
-    lrplt1 = np.arange(100)
-    aer01 = -75.0*lrplt1/1000.0-2
-    
-    # constant initialization
-#    lrplt = np.array([1500,1500])/75.0
-    lrplt = np.array([50,50])*75.0
-    aer0 = np.array([-4,-9])
-    
-    plt.figure(); 
-    plt.plot((LidarRatioMLE.profile*xMLE_fit).flatten(),np.log10(aer_beta_dlb.profile.flatten()),'.',label='retrieved data'); 
-    plt.plot(lrplt,aer0,'g--',label='constant initialization'); 
-    plt.plot(lrplt1,aer01,'r--',label='aerosol initialization'); 
-    plt.xlabel('lidar ratio [sr]'); 
-    plt.ylabel(r'$log_{10}\beta_a$ [$m^{-1}sr^{-1}$]'); 
-    plt.grid(b=True); 
-    plt.legend();
 
 if runKlett:
     lp.pcolor_profiles([aer_beta_dlb,aer_beta_klett],climits=[[-8,-4],[-8,-4]],plotAsDays=plotAsDays)  
