@@ -18,58 +18,8 @@ import datetime
 
 import glob
 
-def ProfEstimateSVD2D(x,Prof,Psvd,lam):
-    x = x.reshape(Prof.shape)
-    deriv= np.nansum(np.diff(x,axis=0))*lam[0]+np.nansum(np.diff(x,axis=1))*lam[1]
-    ErrRet = np.nansum((x+Psvd).flatten()-Prof.flatten()*np.log(x+Psvd).flatten())+deriv
-    return ErrRet
-def ProfEstimateSVD2D_prime(x,Prof,Psvd,lam):
-    x = x.reshape(Prof.shape)
-    gradErr = 1-Prof/(x+Psvd)
-    gradErr[np.nonzero(np.isnan(gradErr))] = 0
-    
-    gradpen = lam[0]*np.sign(np.diff(x,axis=0))
-    gradpen[np.nonzero(np.isnan(gradpen))] = 0
-    gradErr[:-1,:] = gradErr[:-1,:]-gradpen
-    gradErr[1:,:] = gradErr[1:,:]+gradpen
-    
-    gradpen = lam[1]*np.sign(np.diff(x,axis=1))
-    gradpen[np.nonzero(np.isnan(gradpen))] = 0
-    gradErr[:,:-1] = gradErr[:,:-1]-gradpen
-    gradErr[:,1:] = gradErr[:,1:]+gradpen
 
-    return gradErr.flatten()
-
-#filePath = '/scr/eldora1/MSU_h2o_data/2016/161209NF/18/'
-#fileName1 = 'Online_Raw_Data.dat'  # molecular
-#fileName2 = 'Offline_Raw_Data.dat'  # combined
-
-#Day = 4
-#Month = 1
-#Year = 2017
-#HourLim = np.array([0,24])  # Limits on the processing time
-#
-#
-# Set the process chunk in year, month, day and duration
-# function format:
-# generate_WVDIAL_day_list(startYr,startMo,startDay,startHr=0,duration=0.0,stopYr=0,stopMo=0,stopDay=0,stopHr=24)
-# duration is set in hours
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2016,12,28,startHr=6.0,duration=1.0) #,stopYr=0,stopMo=0,stopDay=0,stopHr=24):
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2016,12,28,startHr=13.5,stopYr=2017,stopMo=1,stopDay=2)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2016,12,27,startHr=19.85,stopHr=19.95)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,19,startHr=22.0,duration=1.0)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,21,startHr=19.3,duration=1.5)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,17,startHr=10.0,duration=1.0)
-
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,27,startHr=13.75,duration=0.3)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,2,25,startHr=3,duration=1.0)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,2,22,startHr=8.0,duration=3.0)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,2)
-
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,4,13,startHr=9.12,stopHr=11.76)  # WV-DIAL RD Correction ,startHr=5,duration=4.0
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,4,12,duration=2*24)  # WV-DIAL RD Correction ,startHr=5,duration=4.0
-
-Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,4,11,startHr=1,duration=5)  # WV-DIAL RD Correction ,startHr=5,duration=4.0
+Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,4,11,startHr=1,duration=11)  # WV-DIAL RD Correction ,startHr=5,duration=4.0
 #Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,4,18,startHr=4.5,stopHr=5.4)  # WV-DIAL RD Correction ,startHr=5,duration=4.0
 
 #Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,12,stopDay=19)
@@ -82,7 +32,7 @@ runKlett = False
 save_as_nc = True
 save_figs = True
 
-nctag = 'with_geo'  # additional tag for netcdf and figure filename
+nctag = ''  # additional tag for netcdf and figure filename
 
 run_geo_cal = False
 
@@ -94,7 +44,7 @@ MaxAlt = 12e3 #12e3
 
 KlettAlt = 14e3  # altitude where Klett inversion starts
 
-tres = 0.5*60.0  # resolution in time points (2 sec)
+tres = 2.0*60.0  # resolution in time points (2 sec)
 zres = 1.0  # resolution in altitude points (75 m)
 
 use_diff_geo = False   # no diff geo correction after April ???
@@ -104,13 +54,10 @@ use_mask = False
 SNRmask = 0.0  #SNR level used to decide what data points we keep in the final data product
 countLim = 2.0
 
-#kB = 1.3806504e-23;
-#c = 3e8
-
 MCSbins = 280*2  # number of bins in a range resolved profile,  280-typical became 1400 on 2/22/2017
 BinWidth = 250e-9 # MCS timing bin width in seconds.  typically 500e-9 before April ?.  250e-9 after April ?
 dR = BinWidth*lp.c/2  # profile range resolution (500e-9*c/2)-typical became 100e-9*c/2 on 2/22/2017
-dt = 2  # profile accumulation time
+dt = 2  # profile accumulation time in seconds
 Roffset = ((1.25+0.5)-0.5/2)*150  # offset in range
 
 BGIndex = -50; # negative number provides an index from the end of the array
@@ -277,25 +224,6 @@ for dayindex in range(Years.size):
 #            print(CombHi.profile.shape)
 
 
-#plt.figure(figsize=(15,5)); 
-#plt.pcolor(Molecular.time/3600,Molecular.range_array*1e-3, np.log10(1e9*Molecular.profile.T/Molecular.binwidth_ns/(dt*7e3)));
-#plt.colorbar()
-#plt.clim([3,8])
-#plt.title(Molecular.lidar + ' Molecular Count Rate [Hz]')
-#plt.ylabel('Altitude [km]')
-#plt.xlabel('Time [UTC]')
-#plt.xlim(HourLim)
-#
-#plt.figure(figsize=(15,5)); 
-#plt.pcolor(CombHi.time/3600,CombHi.range_array*1e-3, np.log10(1e9*CombHi.profile.T/CombHi.binwidth_ns/(dt*7e3)));
-#plt.colorbar()
-#plt.clim([3,8])
-#plt.title(Molecular.lidar + ' Combined Count Rate [Hz]')
-#plt.ylabel('Altitude [km]')
-#plt.xlabel('Time [UTC]')
-#plt.xlim(HourLim)
-
-
 # Update the HourLim definition to account for multiple days.  Plots use this
 # to display only the desired plot portion.
 HourLim = np.array([Hours[0,0],Hours[1,-1]+deltat_0*24])
@@ -313,40 +241,6 @@ CombRaw = CombHi.copy()
 CombHi.nonlinear_correct(29.4e-9);
 CombHi.bg_subtract(BGIndex)
 
-
-#ncfilename = '/h/eol/mhayman/write_py_netcdf3.nc'
-#CombHi.write2nc(ncfilename)
-#aer_beta_dlb.write2nc(ncfilename)
-
-
-
-#plt.figure(); 
-#plt.pcolor(np.log(Molecular.profile_variance).T);
-
-#MolInt = Molecular.copy();
-#MolInt.time_integrate();
-#CombInt = CombHi.copy();
-#CombInt.time_integrate();
-#plt.figure(); plt.semilogy(np.sqrt(CombInt.profile_variance.flatten())); plt.semilogy(np.sqrt(MolInt.profile_variance.flatten()));
-
-
-#plt.figure(figsize=(15,5)); 
-#plt.pcolor(Molecular.time/3600,Molecular.range_array*1e-3, np.log10(1e9*Molecular.profile.T/Molecular.binwidth_ns/(dt*7e3)));
-#plt.colorbar()
-#plt.clim([3,8])
-#plt.title(Molecular.lidar + ' Molecular Count Rate [Hz] (BG Subtracted)')
-#plt.ylabel('Altitude [km]')
-#plt.xlabel('Time [UTC]')
-#plt.xlim(HourLim)
-#
-#plt.figure(figsize=(15,5)); 
-#plt.pcolor(CombHi.time/3600,CombHi.range_array*1e-3, np.log10(1e9*CombHi.profile.T/CombHi.binwidth_ns/(dt*7e3)));
-#plt.colorbar()
-#plt.clim([3,8])
-#plt.title(Molecular.lidar + ' Combined Count Rate [Hz] (BG Subtracted)')
-#plt.ylabel('Altitude [km]')
-#plt.xlabel('Time [UTC]')
-#plt.xlim(HourLim)
 
 if CombHi.time.size > Molecular.time.size:
     CombHi.slice_time_index(time_lim=np.array([0,Molecular.time.size]))
@@ -424,35 +318,12 @@ if Cam > 0:
 lp.plotprofiles([CombHi,Molecular])
 
 
-### Grab Sonde Data  -- This segment is depricated but temp and pressure data are still used in outdated functions (e.g. extinction)
-sondefilename = '/scr/eldora1/HSRL_data/'+YearStr+'/'+MonthStr+'/sondes.DNR.nc'
-#sonde_index = 2*Days[-1]
-sonde_index = 22
-#(Man or SigT)
-f = netcdf.netcdf_file(sondefilename, 'r')
-TempDat = f.variables['tpSigT'].data.copy()  # Kelvin
-PresDat = f.variables['prSigT'].data.copy()*100.0  # hPa - convert to Pa (or Man or SigT)
-SondeTime = f.variables['relTime'].data.copy() # synoptic time: Seconds since (1970-1-1 00:00:0.0) 
-SondeAlt = f.variables['htSigT'].data.copy()  # geopotential altitude in m
-StatElev = f.variables['staElev'].data.copy()  # launch elevation in m
-f.close()
-
-TempDat[np.nonzero(np.logical_or(TempDat < 173.0, TempDat > 373.0))] = np.nan;
-PresDat[np.nonzero(np.logical_or(PresDat < 1.0*100, PresDat > 1500.0*100))] = np.nan;
-
-sonde_index = np.min([np.shape(SondeAlt)[0]-1,sonde_index])
-# Obtain sonde data for backscatter coefficient estimation
-Tsonde = np.interp(CombHi.range_array,SondeAlt[sonde_index,:]-StatElev[sonde_index],TempDat[sonde_index,:])
-Psonde = np.interp(CombHi.range_array,SondeAlt[sonde_index,:]-StatElev[sonde_index],PresDat[sonde_index,:])
-
-
-
-# note the operating wavelength of the lidar is 532 nm
-beta_m_sonde = sonde_scale*5.45*(550.0/780.24)**4*1e-32*Psonde/(Tsonde*lp.kB)
-
-
-beta_mol_sonde,sonde_time,sonde_index_prof = lp.get_beta_m_sonde(Molecular,Years,Months,Days,sonde_path,interp=True)
+beta_mol_sonde,sonde_time,sonde_index_prof,temp,pres,sonde_index = lp.get_beta_m_sonde(Molecular,Years,Months,Days,sonde_path,interp=True,returnTP=True)
 #beta_mol_sonde.gain_scale(sonde_scale)
+
+isonde = np.argmin(pres.time-pres.time/2.0)
+Psonde = pres.profile[isonde,:]
+Tsonde = temp.profile[isonde,:]
 
 #plt.figure(); plt.semilogx(beta_m_sonde/np.nanmean(Molecular.profile,axis=0),Molecular.range_array)
 if sonde_scale == 1.0:
@@ -464,10 +335,6 @@ BSR = (CombHi.profile)/Molecular.profile
 
 #beta_bs = BSR*beta_m_sonde[np.newaxis,:]  # total backscatter including molecules
 beta_bs = BSR*beta_mol_sonde.profile
-
-#aer_beta_bs = (BSR-1)*beta_m_sonde[np.newaxis,:]    # only aerosol backscatter
-#aer_beta_bs[np.nonzero(aer_beta_bs <= 0)] = 1e-10;
-
 
 ## Depricated aerosol backscatter retrieval.  Better if there are no sondes to use as reference.
 #aer_beta_dlb = lp.Calc_AerosolBackscatter(Molecular,CombHi,Temp=Tsonde,Pres=Psonde)
@@ -507,24 +374,6 @@ aer_beta_LP = lp.AerosolBackscatter(MolLP,CombLP,beta_mol_sonde)
 
 Extinction,OptDepth,ODmol = lp.Calc_Extinction(MolLP, MolConvFactor=Mol_Beta_Scale, Temp=Tsonde, Pres=Psonde, AerProf=aer_beta_dlb)
 
-## Atmospheric transmission calculation
-#Transmission = Molecular.profile.copy()/beta_m_sonde[np.newaxis,:]*0.7729729
-
-############## Eventually fold into LidarProfileFunctions
-#aerfit = aer_beta_dlb.profile
-##aerfit[np.nonzero(aerfit<0)] = 0
-##aerfit[np.nonzero(np.isnan(aerfit))] = np.nan
-#aerfit_std = np.sqrt(aer_beta_dlb.profile_variance)
-#ODfit = OptDepth.profile-ODmol[np.newaxis,:]
-#ODvar = OptDepth.profile_variance
-#
-#
-#aerfit[np.nonzero(np.isnan(aerfit))] = 0
-#x_invalid = np.nonzero(aerfit < 3.3*aerfit_std)
-#
-#sLROpt,extinctionOpt,ODOpt,ODbiasOpt = lp.Retrieve_Ext_Block_MLE(ODfit,ODvar,aerfit,x_invalid,maxblock=30,maxLR=1e5,minLR=aer_beta_dlb.mean_dR,lam=np.array([10.0,3.0]),grad_gain=1e-1,max_iterations=200,optout=-1)
-if getMLE_extinction:
-    ExtinctionMLE,OptDepthMLE,LidarRatioMLE,ODbiasProf,xMLE_fit = lp.Retrieve_Ext_MLE(OptDepth,aer_beta_dlb,ODmol,overlap=3,lam=np.array([10.0,3.0]),max_iterations=10000)
 
 if run_MLE and use_geo:
 #    beta_a_mle,alpha_a_mle,sLR_mle,xvalid_mle,CamList,GmList,GcList,ProfileErrorMol,ProfileErrorComb,fit_mol_mle,fit_comb_mle = \
@@ -541,18 +390,6 @@ if run_MLE and use_geo:
     fit_mol_mle.slice_range_index(range_lim=[0,aer_beta_dlb.profile.shape[1]])
     fit_comb_mle.slice_range_index(range_lim=[0,aer_beta_dlb.profile.shape[1]])
     
-#    if use_mask:
-#        NanMask = np.logical_or(Molecular.profile < 4.0,CombHi.profile < 4.0)
-#        beta_a_merge = np.ma.array(beta_merge,mask=NanMask)
-
-#plt.figure(); 
-#plt.semilogx(aer_beta_dlb_int.range_array,aer_beta_dlb)
-
-#OptDepth = np.log(CombHi.profile/beta_bs)*0.5
-#
-#extinction = -np.diff(np.log(Molecular.profile/beta_m_sonde[np.newaxis,:]),axis=1)*0.5
-#
-#extinction2 = -np.diff(np.log(CombHi.profile/beta_bs),axis=1)*0.5
 
 ### Run Klett Inversion for comparision
 #,geo_corr=np.array([])
@@ -561,18 +398,6 @@ if runKlett:
 #    diff_aer_beta = np.ma.array(aer_beta_dlb.profile-aer_beta_klett.profile,mask=np.logical_and(aer_beta_dlb.profile < 1e-7,aer_beta_dlb.SNR() < 3.0))
     diff_aer_beta = np.ma.array(aer_beta_klett.profile/aer_beta_dlb.profile,mask=np.logical_and(aer_beta_dlb.profile < 1e-7,aer_beta_dlb.SNR() < 3.0))
 
-#if use_mask:
-##    CountMask = np.logical_or(Molecular.SNR() < countLim,CombHi.SNR() < countLim)
-##    CountMask = np.logical_or(CountMask,np.isnan(aer_beta_dlb.profile))
-#    CountMask = np.isnan(aer_beta_dlb.profile)
-##    CountMask = np.logical_or(CountMask, aer_beta_dlb.SNR() < SNRmask)
-#    aer_beta_dlb.profile = np.ma.array(aer_beta_dlb.profile, mask=CountMask)
-##    aer_beta_dlb.profile[np.nonzero(aer_beta_dlb.SNR() < SNRmask)] = np.nan
-##    Extinction.profile[np.nonzero(Extinction.SNR() < SNRmask)] = np.nan
-
-#ExtMask = Extinction.SNR() < 1.0
-#ExtMask = np.logical_or(ExtMask,aer_beta_dlb.profile < 1e-6)
-#Extinction.profile = np.ma.array(Extinction.profile,mask=ExtMask)
 
 #ncfilename = '/h/eol/mhayman/write_py_netcdf3.nc'
 if save_as_nc:
@@ -594,120 +419,21 @@ if plotAsDays:
 else:
     time_scale = 3600.0
 
-lp.pcolor_profiles([Molecular,CombHi],climits=[[8,12],[8,12]],plotAsDays=plotAsDays)
-
-# set y limits to nearest half km in profile range span
-ylimits = 2.0*np.array([np.round(0.5e-3*aer_beta_dlb.range_array[0]),np.round(0.5e-3*aer_beta_dlb.range_array[-1])])
-# scale figure dimensions based on time and altitude dimensions
-time_span = (aer_beta_dlb.time[-1]-aer_beta_dlb.time[0])/3600  # time domain of plotted data
-range_span = ylimits[1]-ylimits[0]  # range domain of plotted data
-#range_span = (aer_beta_dlb.range_array[-1]-aer_beta_dlb.range_array[0])*1e-3
-
-# adjust title line based on the amount of plotted time data
-if time_span < 8.0:
-    # short plots (in time)
-    line_char = '\n'  # include a newline to fit full title
-    y_top_edge = 1.2  # top edge set for double line title
-    title_font_size = 12  # use larger title font
-elif time_span <= 16.0:
-    # medium plots (in time)
-    line_char = ' '  # no newline in title
-    y_top_edge = 0.9  # top edge set for single line title
-    title_font_size = 12  # use smaller title font
-else:
-    # long plots (in time)
-    line_char = ' '  # no newline in title
-    y_top_edge = 0.9  # top edge set for single line title
-    title_font_size = 16  # use larger title font
-
-max_len = 18.0
-min_len = 2.0
-max_h = 8.0
-min_h = 0.2
-x_left_edge =1.0
-x_right_edge = 2.0
-y_bottom_edge = 0.6
-#y_top_edge = 1.2 # 0.9 for single line title, 1.8 for double line title
-
-ax_len = np.max(np.array([np.min(np.array([max_len,time_span*18.0/24.0])),min_len])) # axes length
-ax_h = np.max(np.array([np.min(np.array([max_h,range_span*2.1/12])),min_h]))  # axes height
-fig_len = x_left_edge+x_right_edge+ax_len  # figure length
-fig_h =y_bottom_edge+y_top_edge+ax_h  # figure height
-
-# axes sizes for time/range resolved profiles
-axlims = [x_left_edge/fig_len,y_bottom_edge/fig_h,1-x_right_edge/fig_len,1-y_top_edge/fig_h]
-
-# axes sizing for vertically stacked plots
-axlim2 = [[x_left_edge/fig_len,y_bottom_edge/fig_h/2.0+0.5,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/2.0], \
-    [x_left_edge/fig_len,y_bottom_edge/fig_h/2.0,1-x_right_edge/fig_len,(1-y_top_edge/fig_h)/2.0]]
 
 
-#plt.figure(figsize=(15,5)); # plt.figure(figsize=(15,5))
-#plt.pcolor(aer_beta_dlb.time/time_scale,aer_beta_dlb.range_array*1e-3, np.log10(aer_beta_dlb.profile.T));
-#plt.colorbar()
-#plt.clim([-9,-3])
-#plt.title(DateLabel + ', ' + CombHi.lidar + ' Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
+#lp.pcolor_profiles([Molecular,CombHi],climits=[[8,12],[8,12]],plotAsDays=plotAsDays)
+
+# plot aerosol backscatter
+# climits=[[-8,-4]] for clouds and aerosols
+# climits=[[-7.4,-6.0]] for aerosols
+lp.pcolor_profiles([aer_beta_dlb],climits=[[-7.4,-6.0]],plotAsDays=plotAsDays)    
     
-#fig = plt.figure(figsize=(20,3)); # plt.figure(figsize=(15,5))
-#ax = plt.axes([0.05, 0.2, 0.9, 0.7])  # [xstart,ystart,xwid,ywid] - as fractions of the window size
-fig = plt.figure(figsize=(fig_len,fig_h)); # plt.figure(figsize=(15,5))
-ax = plt.axes(axlims)  # [xstart,ystart,xwid,ywid] - as fractions of the window size
-im = plt.pcolor(aer_beta_dlb.time/time_scale,aer_beta_dlb.range_array*1e-3, np.log10(aer_beta_dlb.profile.T));
-plt.ylim(ylimits)
-plt.clim([-8,-4]) # Aerosol Enhanced limits plt.clim([-7.5,-6])
-plt.title(DateLabel + ', ' + aer_beta_dlb.lidar+ line_char + 'Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]',fontsize=title_font_size)
-plt.ylabel('Altitude AGL [km]')
-if plotAsDays:
-    plt.xlabel('Days [UTC]')
-    plt.xlim(HourLim/24.0)
-else:
-    plt.xlabel('Time [UTC]')
-    plt.xlim(HourLim)
-divider = make_axes_locatable(ax)
-#cax = divider.append_axes("right",size="1%",pad=0.2)
-cax = divider.append_axes("right",size=0.1,pad=0.2)
-plt.colorbar(im,cax=cax)
-
 if save_figs:
-    plt.savefig(figfilename+'_AerosolBackscatter.png')
+    plt.savefig(figfilename+'_AerosolBackscatter.png')    
+    
 
-if runKlett:
-#    plt.figure(figsize=(15,5)); 
-#    plt.pcolor(aer_beta_klett.time/time_scale,aer_beta_klett.range_array*1e-3, np.log10(aer_beta_klett.profile.T));
-#    plt.colorbar()
-#    plt.clim([-9,-3])
-#    plt.title(DateLabel + ', ' + 'Klett Estimated' + ' Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-#    plt.ylabel('Altitude [km]')
-#    if plotAsDays:
-#        plt.xlabel('Days [UTC]')
-#        plt.xlim(HourLim/24.0)
-#    else:
-#        plt.xlabel('Time [UTC]')
-#        plt.xlim(HourLim)
-        
-    fig = plt.figure(figsize=(20,3)); # plt.figure(figsize=(15,5))
-    ax = plt.axes([0.05, 0.2, 0.9, 0.7])
-    im = plt.pcolor(aer_beta_klett.time/time_scale,aer_beta_klett.range_array*1e-3, np.log10(aer_beta_klett.profile.T));
-    plt.clim([-8,-4]) # Aerosol Enhanced limits plt.clim([-7.5,-6])
-    plt.title(DateLabel + ', ' + 'Klett Estimated' + 'Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-    plt.ylabel('Altitude [km]')
-    #plt.ylim([0,10])
-    if plotAsDays:
-        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right",size="1%",pad=0.2)
-    plt.colorbar(im,cax=cax)
+if runKlett:       
+    lp.pcolor_profiles([aer_beta_klett],climits=[[-8,-4]],plotAsDays=plotAsDays)  
         
     plt.figure(figsize=(15,5)); 
     plt.pcolor(aer_beta_klett.time/time_scale,aer_beta_klett.range_array*1e-3, np.log10(diff_aer_beta.T));
@@ -722,197 +448,16 @@ if runKlett:
         plt.xlabel('Time [UTC]')
         plt.xlim(HourLim)
 
-
-#plt.figure(figsize=(15,5)); 
-#plt.pcolor(CombHi.time/time_scale,CombHi.range_array*1e-3, np.log10(CombHi.profile.T));
-#plt.colorbar()
-#plt.clim([8,12])  # plt.clim([9,12])
-#plt.title(DateLabel + ', ' + CombHi.lidar + ' Attenuated Backscatter [Counts]')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
     
-fig = plt.figure(figsize=(fig_len,fig_h)); # plt.figure(figsize=(15,5))
-ax = plt.axes(axlims)  # [xstart,ystart,xwid,ywid] - as fractions of the window size
-im = plt.pcolor(CombHi.time/time_scale,CombHi.range_array*1e-3, np.log10(CombHi.profile.T));
-plt.clim([8,12])
-plt.title(DateLabel + ', ' + CombHi.lidar +line_char+ 'Attenuated Backscatter [Counts]',fontsize=title_font_size)
-plt.ylabel('Altitude AGL [km]')
-if plotAsDays:
-    plt.xlabel('Days [UTC]')
-    plt.xlim(HourLim/24.0)
-else:
-    plt.xlabel('Time [UTC]')
-    plt.xlim(HourLim)
-divider = make_axes_locatable(ax)
-cax = divider.append_axes("right",size=0.1,pad=0.2)
-plt.colorbar(im,cax=cax)
+lp.pcolor_profiles([CombHi],climits=[[8,12]],plotAsDays=plotAsDays)  
 if save_figs:
     plt.savefig(figfilename+'_CombHi.png')
 
-if getMLE_extinction:
-    plt.figure(figsize=(15,5)); 
-    plt.pcolor(ExtinctionMLE.time/time_scale,ExtinctionMLE.range_array*1e-3, np.log10(ExtinctionMLE.profile.T));
-    plt.colorbar()
-    plt.clim([-7,-3])
-    plt.title(DateLabel + ', ' + ExtinctionMLE.lidar + line_char+'Aerosol Extinction Coefficient [$m^{-1}$]')
-    plt.ylabel('Altitude [km]')
-    if plotAsDays:
-        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
-        
-    plt.figure(figsize=(15,5)); 
-    plt.pcolor(LidarRatioMLE.time/time_scale,LidarRatioMLE.range_array*1e-3, (xMLE_fit*LidarRatioMLE.profile).T);
-    plt.colorbar()
-    plt.clim([0,100])
-    plt.title(DateLabel + ', ' + ExtinctionMLE.lidar + line_char+'Lidar Ratio [$sr$]')
-    plt.ylabel('Altitude [km]')
-    if plotAsDays:
-        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
 
-#plt.figure(figsize=(15,5)); 
-#plt.pcolor(Extinction.time/3600,Extinction.range_array*1e-3, np.log10(Extinction.profile.T));
-#plt.colorbar()
-#plt.clim([-4,-2])
-#plt.title(DateLabel + ', ' + CombHi.lidar + ' Aerosol Extinction Coefficient [$m^{-1}$]')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
-
-#plt.figure(); 
-#plt.pcolor(OptDepth.time/3600,OptDepth.range_array*1e-3, np.log10(OptDepth.profile.T));
-#plt.colorbar()
-#plt.clim([0,3])
-#plt.title(DateLabel + ', ' + CombHi.lidar + ' Optical Depth')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
-
-
-#plt.figure(figsize=(15,5)); 
-#plt.pcolor(Extinction.time/3600,Extinction.range_array*1e-3, np.log10(Extinction.profile/aer_beta_dlb.profile).T);
-#plt.colorbar()
-##plt.clim([-4,-2])
-#plt.title(DateLabel + ', ' + CombHi.lidar + ' Lidar Ratio [$sr$]')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
-
-
-#plt.figure(figsize=(15,10)); 
-#plt.subplot(2,1,2)
-#plt.pcolor(aer_beta_dlb.time/time_scale,aer_beta_dlb.range_array*1e-3, np.log10(aer_beta_dlb.profile.T));
-#plt.colorbar()
-#plt.clim([-8.5,-4])
-#plt.title(DateLabel + ', ' + CombHi.lidar + ' Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
-#    
-#plt.subplot(2,1,1)
-#plt.pcolor(CombHi.time/time_scale,CombHi.range_array*1e-3, np.log10(CombHi.profile).T);  # /(CombHi.binwidth_ns*1e-9*tres*7e3)
-#plt.colorbar()
-#plt.clim([9,12])
-#plt.title(DateLabel + ', ' + CombHi.lidar + ' Attenuated Backscatter [Counts]')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
-
-
-
-fig = plt.figure(figsize=(fig_len,2*fig_h)); # plt.figure(figsize=(15,5))
-ax = plt.axes(axlim2[0])  # [xstart,ystart,xwid,ywid] - as fractions of the window size
-im = plt.pcolor(aer_beta_dlb.time/time_scale,aer_beta_dlb.range_array*1e-3, np.log10(aer_beta_dlb.profile.T));
-plt.ylim(ylimits)
-plt.clim([-8,-4]) # Aerosol Enhanced limits plt.clim([-7.5,-6])
-plt.title(DateLabel + ', ' + CombHi.lidar+ line_char + ' Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]',fontsize=title_font_size)
-plt.ylabel('Altitude AGL [km]')
-if plotAsDays:
-    plt.xlabel('Days [UTC]')
-    plt.xlim(HourLim/24.0)
-else:
-    plt.xlabel('Time [UTC]')
-    plt.xlim(HourLim)
-divider = make_axes_locatable(ax)
-#cax = divider.append_axes("right",size="1%",pad=0.2)
-cax = divider.append_axes("right",size=0.1,pad=0.2)
-plt.colorbar(im,cax=cax)
-
-ax = plt.axes(axlim2[1]) 
-im = plt.pcolor(CombHi.time/time_scale,CombHi.range_array*1e-3, np.log10(CombHi.profile.T));
-plt.ylim(ylimits)
-plt.clim([8,12])
-plt.title(DateLabel + ', ' + CombHi.lidar+ line_char + ' Attenuated Backscatter [Counts]',fontsize=title_font_size)
-plt.ylabel('Altitude AGL [km]')
-if plotAsDays:
-    plt.xlabel('Days [UTC]')
-    plt.xlim(HourLim/24.0)
-else:
-    plt.xlabel('Time [UTC]')
-    plt.xlim(HourLim)
-divider = make_axes_locatable(ax)
-cax = divider.append_axes("right",size=0.1,pad=0.2)
-plt.colorbar(im,cax=cax)
+lp.pcolor_profiles([aer_beta_dlb,CombHi],climits=[[-8,-4],[8,12]],plotAsDays=plotAsDays)  
 if save_figs:
     plt.savefig(figfilename+'_AerosolBackscatter_and_CombinedBackscatter.png')
-#
-#plt.figure(figsize=(15,10)); 
-#plt.subplot(2,1,1)
-#plt.pcolor(aer_beta_dlb.time/time_scale,aer_beta_dlb.range_array*1e-3, np.log10(aer_beta_dlb.profile.T));
-#plt.colorbar()
-#plt.clim([-9,-3])
-#plt.title(DateLabel + ', ' + CombHi.lidar + ' Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
-#
-#plt.subplot(2,1,2)
-#plt.pcolor(aer_layer_dlb.time/time_scale,aer_layer_dlb.range_array*1e-3, np.log10(aer_layer_dlb.profile.T));
-#plt.colorbar()
-#plt.clim([-9,-3])
-#plt.title(DateLabel + ', ' + CombHi.lidar + ' Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
+
 
 if getMLE_extinction:
     # initialization dependent on the aerosol backscatter
@@ -934,34 +479,10 @@ if getMLE_extinction:
     plt.legend();
 
 if runKlett:
-    plt.figure(figsize=(15,10)); 
-    plt.subplot(3,1,1)
-    plt.pcolor(aer_beta_dlb.time/time_scale,aer_beta_dlb.range_array*1e-3, np.log10(aer_beta_dlb.profile.T));
-    plt.colorbar()
-    plt.clim([-9,-3])
-    plt.title(DateLabel + ', ' + CombHi.lidar + ' Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-    plt.ylabel('Altitude [km]')
-    if plotAsDays:
-#        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-#        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
-    plt.ylim([0,10])
+    lp.pcolor_profiles([aer_beta_dlb,aer_beta_klett],climits=[[-8,-4],[-8,-4]],plotAsDays=plotAsDays)  
+    if save_figs:
+        plt.savefig(figfilename+'_AerosolBackscatter_Direct_and_Klett.png')
     
-    plt.subplot(3,1,2)
-    plt.pcolor(aer_beta_klett.time/time_scale,aer_beta_klett.range_array*1e-3, np.log10(aer_beta_klett.profile.T));
-    plt.colorbar()
-    plt.clim([-9,-3])
-    plt.title(DateLabel + ', ' + 'Klett Estimated' + ' Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-    plt.ylabel('Altitude [km]')
-    if plotAsDays:
-#        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-#        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
-    plt.ylim([0,10])
 
     plt.subplot(3,1,3)
     plt.pcolor(aer_beta_klett.time/time_scale,aer_beta_klett.range_array*1e-3, np.log10(diff_aer_beta.T));
@@ -979,93 +500,31 @@ if runKlett:
 
 if run_MLE and use_geo:    
     ### Plot Both MLE and Direct Retrievals ###
-    fig = plt.figure(figsize=(20,6)); # plt.figure(figsize=(15,5))
-    #plt.subplot(2,1,1)
-    ax = plt.axes([0.05, 0.5+0.1, 0.9, (0.7)/2])
-    im = plt.pcolor(aer_beta_dlb.time/time_scale,aer_beta_dlb.range_array*1e-3, np.log10(aer_beta_dlb.profile.T));
-    plt.ylim([0,12])
-    plt.clim([-8,-4]) # Aerosol Enhanced limits plt.clim([-7.5,-6])
-    plt.title(DateLabel + ', ' + CombHi.lidar + ' Direct Calculated Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-    plt.ylabel('Altitude [km]')
-    if plotAsDays:
-    #    plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-    #    plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right",size="1%",pad=0.2)
-    plt.colorbar(im,cax=cax)
-    #plt.subplot(2,1,2)
-    ax = plt.axes([0.05, 0.1, 0.9,0.7/2])
-    im = plt.pcolor(beta_a_merge.time/time_scale,beta_a_merge.range_array*1e-3, np.log10(beta_a_merge.profile.T));
-    plt.ylim([0,12])
-    plt.clim([-8,-4]) # Aerosol Enhanced limits plt.clim([-7.5,-6])
-    plt.title(DateLabel + ', ' + beta_a_merge.lidar + ' MLE Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-    plt.ylabel('Altitude [km]')
-    if plotAsDays:
-        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right",size="1%",pad=0.2)
-    plt.colorbar(im,cax=cax)
+    lp.pcolor_profiles([beta_merge],climits=[[-8.0,-4.0]],plotAsDays=plotAsDays) 
     if save_figs:
-        plt.savefig(figfilename+'_Both_MLE_Direct_AerosolBackscatter.png')
+        plt.savefig(figfilename+'_MLE_AerosolBackscatter.png')
     
-    
-    fig = plt.figure(figsize=(20,3)); # plt.figure(figsize=(15,5))
-    ax = plt.axes([0.05, 0.2, 0.9, 0.7])
-    im = plt.pcolor(beta_a_mle.time/time_scale,beta_a_mle.range_array*1e-3, np.log10(beta_a_mle.profile.T));
-    plt.ylim([0,12])
-    plt.clim([-8,-4]) # Aerosol Enhanced limits plt.clim([-7.5,-6])
-    plt.title(DateLabel + ', ' + beta_a_merge.lidar + ' Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]')
-    plt.ylabel('Altitude [km]')
-    if plotAsDays:
-        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
-    divider = make_axes_locatable(ax)
-    cax = divider.append_axes("right",size="1%",pad=0.2)
-    plt.colorbar(im,cax=cax)
+    lp.pcolor_profiles([aer_beta_dlb,beta_merge],climits=[[-8.0,-4.0],[-8.0,-4.0]],plotAsDays=plotAsDays)
     if save_figs:
-        plt.savefig(figfilename+'_Merged_MLE_AerosolBackscatter.png')
-        
-#    beta_a_mle,alpha_a_mle,sLR_mle,xvalid_mle,CamList,GmList,GcList,ProfileErrorMol,ProfileErrorComb
-
-    plt.figure()
-    plt.subplot(3,1,1)
-    plt.pcolor(beta_a_mle.time/time_scale,beta_a_mle.range_array*1e-3,np.log10(beta_a_mle.profile).T)
-    plt.ylim([0,14])
-    plt.clim([-8,-4])
+        plt.savefig(figfilename+'MLE_and_Direct_AerosolBackscatter.png')
+    
+    lp.pcolor_profiles([beta_a_mle,alpha_a_mle,sLR_mle],climits=[[-8.0,-4.0],[-7.0,-3.0],[15,40]],scale=['log','log','linear'],plotAsDays=plotAsDays)
+    if save_figs:
+        plt.savefig(figfilename+'MLE_Backscatter_Extinction_LidarRatio.png')
+    
+    nmask = np.ones(xvalid_mle.profile.shape)
+    nmask[np.nonzero(xvalid_mle.profile==0)] = np.nan;
+    plt.figure(); 
+    plt.scatter((sLR_mle.profile*nmask).flatten(),np.log10(beta_merge.profile.flatten()),c=np.log10(CombHi.flatten()),alpha=0.5)
+    plt.plot(-8.5*np.array([-3,-9])-24.5,np.array([-3,-9]),'k--')
+    plt.grid(b=True)
+    plt.xlabel('Lidar Ratio [$sr$]')
+    plt.ylabel('$log_{10}$ Aerosol Backscatter [$m^{-1}sr^{-1}$]')
     plt.colorbar()
-    plt.title('Backscatter [$m^{-1} sr^{-1}$]')
-    plt.ylabel('Altitude [km]')
-    plt.subplot(3,1,2)
-    plt.pcolor(alpha_a_mle.time/time_scale,alpha_a_mle.range_array*1e-3,np.log10(alpha_a_mle.profile).T)
-    plt.ylim([0,14])
-    plt.clim([-7,-3])
-    plt.colorbar()
-    plt.ylabel('Altitude [km]')
-    plt.title('Extinction [$m^{-1}$]')
-    plt.subplot(3,1,3)
-    plt.pcolor(sLR_mle.time/time_scale,sLR_mle.range_array*1e-3,sLR_mle.profile.T)
-    plt.ylim([0,14])
-    plt.clim([1,50])
-    plt.colorbar()
-    plt.title('Lidar Ratio [$sr$]')
-    plt.ylabel('Altitude [km]')
-    plt.xlabel('Time [h-UTC]')
-    if plotAsDays:
-        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
+    plt.xlim([0,100])
+    plt.title(DateLabel + ', ' +aer_beta_dlb.lidar)
+    if save_figs:
+        plt.savefig(figfilename+'MLE_LidarRatio_vs_Backscatter.png')    
     
     plt.figure(); 
     plt.semilogy(beta_a_mle.time/time_scale,ProfileErrorMol)
@@ -1079,70 +538,10 @@ if run_MLE and use_geo:
     else:
         plt.xlabel('Time [UTC]')
         plt.xlim(HourLim)
-    
-    
-    plt.figure()
-    plt.plot(beta_a_mle.time/time_scale,GmList)
-    plt.plot(beta_a_mle.time/time_scale,GcList)
-    plt.grid(b=True)
-    plt.legend(('Molecular Gain','Combined Gain'))
-    plt.ylabel('$G$')
-    if plotAsDays:
-        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
-    
-    plt.figure()
-    plt.plot(beta_a_mle.time/time_scale,CamList)
-    plt.grid(b=True)
-    plt.ylabel('$C_{a}$')
-    if plotAsDays:
-        plt.xlabel('Days [UTC]')
-        plt.xlim(HourLim/24.0)
-    else:
-        plt.xlabel('Time [UTC]')
-        plt.xlim(HourLim)
+
 
 
 plt.show()
-
-
-#np.savez('20170121_Ext1_5h_2',range_array=LidarRatioMLE.range_array,time_array=LidarRatioMLE.time,LidarRatio=LidarRatioMLE.profile,Extinction=ExtinctionMLE.profile,aer_beta_dlb=aer_beta_dlb.profile,xMLE_fit=xMLE_fit)
-
-
-
-
-
-#plt.figure(figsize=(15,10)); 
-#plt.subplot(2,1,2)
-#plt.pcolor(aer_layer_dlb.time/3600,aer_layer_dlb.range_array*1e-3, (layer_z.T+1.0)*aer_layer_dlb.mean_dR);
-#plt.colorbar()
-##plt.clim([-8.5,-4])
-#plt.title(DateLabel + ', ' + aer_layer_dlb.lidar + ' Range Resolution [m]')
-#plt.ylabel('Altitude [km]')
-#plt.xlabel('Time [UTC]')
-#plt.xlim(HourLim)
-#
-#plt.subplot(2,1,1)
-#plt.pcolor(aer_layer_dlb.time/3600,aer_layer_dlb.range_array*1e-3, (layer_t.T+1.0)*aer_layer_dlb.mean_dt);  # /(CombHi.binwidth_ns*1e-9*tres*7e3)
-#plt.colorbar()
-##plt.clim([9,12])
-#plt.title(DateLabel + ', ' + aer_layer_dlb.lidar + ' Time Resolution [seconds]')
-#plt.ylabel('Altitude [km]')
-#plt.xlabel('Time [UTC]')
-#plt.xlim(HourLim)
-
-## Plot SNR
-#plt.figure(); 
-#plt.pcolor(aer_beta_dlb.time/3600,aer_beta_dlb.range_array*1e-3, np.log10((aer_beta_dlb.profile/np.sqrt(aer_beta_dlb.profile_variance)).T));
-#plt.colorbar()
-##plt.clim([-8,-3])
-#plt.title(CombHi.lidar + ' Aerosol Backscatter Coeffient [$m^{-1}sr^{-1}$]')
-#plt.ylabel('Altitude [km]')
-#plt.xlabel('Time [h-UT]')
-
 
 
 """
@@ -1277,158 +676,3 @@ if run_geo_cal and not use_geo and zres==1.0 and MaxAlt > 25:
     plt.plot(np.sqrt(var_geo_prof))
     
 #    np.savez('/h/eol/mhayman/PythonScripts/HSRL_Processing/NewHSRLPython/calibrations/geo_DLB_20170413',geo_prof=geo_prof,Day=Days,Month=Months,Year=Years,HourLim=HourLim,Hours=Hours,Mol_Beta_Scale=Mol_Beta_Scale,tres=tres,zres=zres,Nprof=Molecular.time.size)
-
-
-
-
-#plt.figure()
-#plt.semilogy(beta_a_mle.time/time_scale,FitMol_bg)
-#plt.semilogy(beta_a_mle.time/time_scale,FitComb_bg)
-#plt.grid(b=True)
-#plt.ylabel('Background Counts')
-#plt.legend(('Molecular Background','Combined Background'))
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
-
-"""
-SVD Denoising
-"""
-#
-#
-#
-#NpcaM = 3
-#NpcaC = 18
-#
-#FitMol0 = MolRaw.profile
-#MeanFitMol0 = np.mean(FitMol0,axis=0)
-#
-#[u,s,v] = np.linalg.svd((FitMol0-MeanFitMol0).T);
-#
-#weights = np.dot(u[:,:NpcaM].T,(FitMol0-MeanFitMol0).T).T
-#
-#Molsvd = np.dot(u[:,:NpcaM],weights.T).T
-#
-##FitComb0 = CombRaw.profile
-##MeanFitComb0 = np.mean(FitComb0,axis=0)
-##
-##[uC,sC,vC] = np.linalg.svd((FitComb0-MeanFitComb0).T);
-##
-##weightsC = np.dot(u[:,:NpcaC].T,(FitComb0-MeanFitComb0).T).T
-##
-##Combsvd = np.dot(uC[:,:NpcaC],weightsC.T).T
-#
-#### Optimization ###
-#
-#FitMol = MolRaw.profile
-#
-#FitComb = CombRaw.profile
-#
-#stopIndex = MolRaw.range_array.size
-#
-#MolEst = Molsvd+MeanFitMol0[np.newaxis,:]
-##CombEst = Combsvd+MeanFitComb0[np.newaxis,:]
-#
-#lamMol = np.array([0.1,1e-3])
-##lamCom = np.array([0.01,10e-3])
-#
-#FitProfMol = lambda x: ProfEstimateSVD2D(x,FitMol,MolEst,lamMol)
-#FitProfMolDeriv = lambda x: ProfEstimateSVD2D_prime(x,FitMol,MolEst,lamMol)
-#
-##bndsP = np.zeros((FitMol.size,2))
-##bndsP[:,1] = np.max(FitMol)*20
-#
-#x0 = np.random.rand(FitMol.size)-0.5
-#wMol = scipy.optimize.fmin_slsqp(FitProfMol,x0,fprime=FitProfMolDeriv,iter=300)
-#
-##FitProfComb = lambda x: ProfEstimateSVD2D(x,FitComb,CombEst,lamCom)
-##FitProfCombDeriv = lambda x: ProfEstimateSVD2D_prime(x,FitComb,CombEst,lamCom)
-##
-###bndsP = np.zeros((FitComb.size,2))
-###bndsP[:,1] = np.max(FitComb)*20
-##
-##x0 = np.random.rand(FitComb.size)-0.5
-##wCom = scipy.optimize.fmin_slsqp(FitProfComb,x0,fprime=FitProfCombDeriv,iter=500)
-##
-##(wCom.reshape(FitComb.shape)+CombEst)
-#
-#
-#####  Process SVD Profiles ####
-#MolSVD = lp.LidarProfile(wMol.reshape(FitMol.shape)+MolEst,MolRaw.time,label='SVD Denoised Molecular Backscatter Channel',descript = 'Unpolarization\nMolecular Backscatter Returns',bin0=-Roffset/dR,lidar='DLB-HSRL')
-##CombSVD = lp.LidarProfile(wCom.reshape(FitComb.shape)+CombEst,CombRaw.time,label='SVD Denoised Combined Backscatter Channel',descript = 'Unpolarization\nCombined Backscatter Returns',bin0=-Roffset/dR,lidar='DLB-HSRL')
-#CombSVD = CombRaw.copy()
-#
-#MolSVD.nonlinear_correct(38e-9);
-#MolSVD.bg_subtract(BGIndex)
-#
-#CombSVD.nonlinear_correct(29.4e-9);
-#CombSVD.bg_subtract(BGIndex)
-#
-#
-#if CombSVD.time.size > Molecular.time.size:
-#    CombSVD.slice_time_index(time_lim=np.array([0,MolSVD.time.size]))
-#elif CombSVD.time.size < MolSVD.time.size:
-#    MolSVD.slice_time_index(time_lim=np.array([0,CombSVD.time.size]))
-#
-##MolSVD.range_correct();
-#MolSVD.slice_range(range_lim=[0,MaxAlt])
-#MolSVD.range_resample(delta_R=zres*dR,update=True)
-##Molecular.conv(2.0,1.0)  # regrid by convolution
-#
-##CombHi.energy_normalize(TransEnergy*EnergyNormFactor)
-#if use_diff_geo:
-#    CombSVD.diff_geo_overlap_correct(diff_geo_corr,geo_reference='mol')
-##if use_geo:
-##    CombHi.geo_overlap_correct(geo_corr)
-##CombSVD.range_correct()
-#CombSVD.slice_range(range_lim=[0,MaxAlt])
-#CombSVD.range_resample(delta_R=zres*dR,update=True)
-##CombHi.conv(2.0,1.0)  # regrid by convolution
-#
-#
-#MolSVD.gain_scale(MolGain)
-#
-## Correct Molecular Cross Talk
-#if Cam > 0:
-#    lp.FilterCrossTalkCorrect(MolSVD,CombSVD,Cam,smart=True)
-##    Molecular.profile = 1.0/(1-Cam)*(Molecular.profile-CombHi.profile*Cam);
-#
-##lp.plotprofiles([CombSVD,MolSVD])
-#
-#
-#
-### note the operating wavelength of the lidar is 532 nm
-##beta_m_sonde = sonde_scale*5.45*(550.0/780.24)**4*1e-32*Psonde/(Tsonde*kB)
-#
-##plt.figure(); plt.semilogx(beta_m_sonde/np.nanmean(Molecular.profile,axis=0),Molecular.range_array)
-#if sonde_scale == 1.0:
-#    Mol_Beta_Scale = 1.36*0.925e-6*2.49e-11*MolSVD.mean_dt/(MolSVD.time[-1]-MolSVD.time[0])  # conversion from profile counts to backscatter cross section
-#else:
-#    Mol_Beta_Scale = 1.0/sonde_scale    
-#
-#BSR = (CombSVD.profile)/MolSVD.profile
-#
-#beta_bs = BSR*beta_m_sonde[np.newaxis,:]  # total backscatter including molecules
-##aer_beta_bs = (BSR-1)*beta_m_sonde[np.newaxis,:]    # only aerosol backscatter
-##aer_beta_bs[np.nonzero(aer_beta_bs <= 0)] = 1e-10;
-#
-#aer_beta_dlb_svd = lp.Calc_AerosolBackscatter(MolSVD,CombSVD,Temp=Tsonde,Pres=Psonde,beta_sonde_scale=sonde_scale)
-#
-#plt.figure(figsize=(15,5)); 
-#plt.pcolor(aer_beta_dlb_svd.time/time_scale,aer_beta_dlb_svd.range_array*1e-3, np.log10(aer_beta_dlb_svd.profile.T));
-#plt.colorbar()
-#plt.clim([-9,-3])
-#plt.title(DateLabel + ', ' + aer_beta_dlb_svd.lidar + ' Aerosol Backscatter Coefficient (SVD) [$m^{-1}sr^{-1}$]')
-#plt.ylabel('Altitude [km]')
-#if plotAsDays:
-#    plt.xlabel('Days [UTC]')
-#    plt.xlim(HourLim/24.0)
-#else:
-#    plt.xlabel('Time [UTC]')
-#    plt.xlim(HourLim)
-#    
-#plt.show()
-#
