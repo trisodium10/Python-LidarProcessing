@@ -48,7 +48,7 @@ import glob
 #Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,17,startHr=10.0,duration=1.0)
 
 #Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,27,startHr=13.75,duration=0.1)
-Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,5,9,startHr=0,duration=30.0)
+Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,5,11,startHr=0,duration=24)
 #Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,2)
 
 #Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,12,stopDay=19)
@@ -71,7 +71,9 @@ MaxAlt = 6e3 #12e3
 
 KlettAlt = 14e3  # altitude where Klett inversion starts
 
-tres = 5.0*60.0  # resolution in time points (2 sec)
+#tres = 5.0*60.0  # resolution in time points (2 sec)
+tres_hsrl = 0.5*60.0
+tres_wv = 0.5*60.0
 zres = 1.0  # resolution in altitude points (75 m)
 
 use_diff_geo = False   # no diff geo correction after April ???
@@ -131,8 +133,8 @@ else:
 
 
 # define time grid for lidar signal processing to occur
-MasterTimeHSRL = np.arange(Hours[0,0]*3600,Days.size*24*3600-(24-Hours[-1,-1])*3600,tres/5.0)
-MasterTimeWV = np.arange(Hours[0,0]*3600,Days.size*24*3600-(24-Hours[-1,-1])*3600,tres)
+MasterTimeHSRL = np.arange(Hours[0,0]*3600,Days.size*24*3600-(24-Hours[-1,-1])*3600,tres_hsrl)
+MasterTimeWV = np.arange(Hours[0,0]*3600,Days.size*24*3600-(24-Hours[-1,-1])*3600,tres_wv)
 
 profHSRL,lambda_hsrl,HourLim = wv.Load_DLB_Data(basepath,FieldLabel_HSRL,[MolFileBase,CombFileBase],MasterTimeHSRL,Years,Months,Days,Hours,MCSbins,lidar='DLB-HSRL',dt=dt,Roffset=Roffset,BinWidth=BinWidth)
 Molecular = profHSRL[0].copy()
@@ -344,14 +346,17 @@ lambda_off = lambda_wv[1].copy()
 #HourLim = np.array([Hours[0,0],Hours[1,-1]+deltat_0*24])
 
 # WV-DIAL
+OnLine.conv(5.0*60.0/tres_wv/2,4.0/2)
 OnLine.slice_time(HourLim*3600)
 OnLineRaw = OnLine.copy()
-OnLine.nonlinear_correct(30e-9);
+#OnLine.nonlinear_correct(30e-9);
 OnLine.bg_subtract(BGIndex)
 
+
+OffLine.conv(5.0*60.0/tres_wv/2,4.0/2)
 OffLine.slice_time(HourLim*3600)
 OffLineRaw = OffLine.copy()
-OffLine.nonlinear_correct(30e-9);
+#OffLine.nonlinear_correct(30e-9);
 OffLine.bg_subtract(BGIndex)
 
 
@@ -510,7 +515,7 @@ Tsonde = temp.profile[isonde,:]
 #nWV = wv.WaterVapor_2D(OnLine,OffLine,lambda_on,lambda_off,pres,temp)
 nWV = wv.WaterVapor_Simple(OnLine,OffLine,Psonde,Tsonde)
 
-nWV.conv(1.0,3.0)
+nWV.conv(0.3,2.0)
 
 
 dnu = np.linspace(-7e9,7e9,400)
@@ -540,29 +545,29 @@ plt.grid(b=True)
 plt.xlabel('Frequency [Hz]')
 plt.ylabel('Transmission')
 
-#nuWV = np.linspace(lp.c/828.5e-9,lp.c/828e-9,500)
-#sigWV = lp.WV_ExtinctionFromHITRAN(nuWV,Tsonde,Psonde)  
-#ind_on = np.argmin(np.abs(lp.c/OnLine.wavelength-nuWV))
-#ind_off = np.argmin(np.abs(lp.c/OffLine.wavelength-nuWV))
-#
-#sigOn = sigWV[:,ind_on]
-#sigOff = sigWV[:,ind_off]
-#
-#sigF = scipy.interpolate.interp1d(nuWV,sigWV)
-#sigWVOn = sigF(dnu+nuOn).T
-#sigWVOff = sigF(dnu+nuOff).T
-#
-##sigWVOn = lp.WV_ExtinctionFromHITRAN(nuOn+dnu,Tsonde,Psonde) 
-##sigWVOff = lp.WV_ExtinctionFromHITRAN(nuOff+dnu,Tsonde,Psonde)
-#
-#sigOn = sigWVOn[inuL,:]
-#sigOff = sigWVOff[inuL,:]
-#
-#
-#
-#range_diff = OnLine.range_array[1:]-OnLine.mean_dR/2.0
-#dsig = np.interp(range_diff,OnLine.range_array,sigOn-sigOff)
-#nWVp = -1.0/(2*(dsig)[np.newaxis,:])*np.diff(np.log(OnLine.profile/OffLine.profile),axis=1)/OnLine.mean_dR
+nuWV = np.linspace(lp.c/828.5e-9,lp.c/828e-9,500)
+sigWV = lp.WV_ExtinctionFromHITRAN(nuWV,Tsonde,Psonde)  
+ind_on = np.argmin(np.abs(lp.c/OnLine.wavelength-nuWV))
+ind_off = np.argmin(np.abs(lp.c/OffLine.wavelength-nuWV))
+
+sigOn = sigWV[:,ind_on]
+sigOff = sigWV[:,ind_off]
+
+sigF = scipy.interpolate.interp1d(nuWV,sigWV)
+sigWVOn = sigF(dnu+nuOn).T
+sigWVOff = sigF(dnu+nuOff).T
+
+#sigWVOn = lp.WV_ExtinctionFromHITRAN(nuOn+dnu,Tsonde,Psonde) 
+#sigWVOff = lp.WV_ExtinctionFromHITRAN(nuOff+dnu,Tsonde,Psonde)
+
+sigOn = sigWVOn[inuL,:]
+sigOff = sigWVOff[inuL,:]
+
+
+
+range_diff = OnLine.range_array[1:]-OnLine.mean_dR/2.0
+dsig = np.interp(range_diff,OnLine.range_array,sigOn-sigOff)
+nWVp = -1.0/(2*(dsig)[np.newaxis,:])*np.diff(np.log(OnLine.profile/OffLine.profile),axis=1)/OnLine.mean_dR
 #
 ###nWV = lp.LidarProfile(nWVp,OnLine.time,label='Water Vapor Number Density',descript = 'Water Vapor Number Density',bin0=-Roffset/dR,lidar='WV-DIAL',binwidth=BinWidth,StartDate=ProcStart)
 ##nWV = OnLine.copy()
