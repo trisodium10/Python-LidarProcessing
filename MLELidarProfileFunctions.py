@@ -29,9 +29,9 @@ def Num_Gradient(func,x0,step_size=1e-3):
         Gradient[ai] = (func(xu)-func(xl))/(xu[ai]-xl[ai])
     return Gradient
     
-def LREstimate_buildConst(geo_correct,MolScale,Cam,beta_m,beta_a,range_array):
+def LREstimate_buildConst(geo_correct,MolScale,Cam,beta_m,beta_a,range_array,dt):
     geofun = 1/np.interp(range_array,geo_correct['geo_prof'][:,0],geo_correct['geo_prof'][:,1])
-    ConstTerms = 1.0/geo_correct['Nprof']*MolScale*(beta_m+Cam*beta_a)*geofun*np.exp(-2.0*np.cumsum(8*np.pi/3*beta_m)*(range_array[1]-range_array[0]))/range_array**2
+    ConstTerms = dt/geo_correct['Nprof']/geo_correct['tres']*MolScale*(beta_m+Cam*beta_a)*geofun*np.exp(-2.0*np.cumsum(8*np.pi/3*beta_m)*(range_array[1]-range_array[0]))/range_array**2
     return ConstTerms
     
 
@@ -257,7 +257,7 @@ def MLE_Estimate_OptProp(MolRaw,CombRaw,Beta_A,geo_data,sonde_pres,sonde_temp,so
     # These account for system efficiency, geometric overlap, molcular extinction
     # 1/r^2 loss.  The function called here also includes molecular backscatter
     # so we have to divide that term out after the fact.
-    ConstTerms = Nprof[:,np.newaxis]*LREstimate_buildConst(geo_data,1,0.0,beta_m_sonde,np.ones(FitComb.shape[1]),MolRawE.range_array)
+    ConstTerms = Nprof[:,np.newaxis]*LREstimate_buildConst(geo_data,1,0.0,beta_m_sonde,np.ones(FitComb.shape[1]),MolRawE.range_array,MolRawE.mean_dt)
     ConstTerms = ConstTerms/beta_m_sonde[np.newaxis,:]
     
     # Pre allocate solution variables
@@ -269,19 +269,19 @@ def MLE_Estimate_OptProp(MolRaw,CombRaw,Beta_A,geo_data,sonde_pres,sonde_temp,so
     sLR_mle = Beta_A_E.copy()
     sLR_mle.descript = 'Maximum Likelihood Estimate of Aerosol Lidar Ratio sr'
     sLR_mle.label = 'Aerosol Lidar Ratio'
-    sLR_mle.profile_type = 'Aerosol Lidar Ratio [$sr$]'
+    sLR_mle.profile_type = '$sr$'
     sLR_mle.profile_variance = sLR_mle.profile_variance*0.0
 
     beta_a_mle = Beta_A_E.copy()
     beta_a_mle.descript = 'Maximum Likelihood Estimate of Aerosol Backscatter Coefficient in m^-1 sr^-1'
     beta_a_mle.label = 'Aerosol Backscatter Coefficient'
-    beta_a_mle.profile_type = 'Aerosol Backscatter Coefficient [$m^{-1}sr^{-1}$]'
+    beta_a_mle.profile_type = '$m^{-1}sr^{-1}$'
     beta_a_mle.profile_variance = beta_a_mle.profile_variance*0.0
     
     alpha_a_mle = Beta_A_E.copy()
     alpha_a_mle.descript = 'Maximum Likelihood Estimate of Aerosol Extinction Coefficient in m^-1'
     alpha_a_mle.label = 'Aerosol Extinction Coefficient'
-    alpha_a_mle.profile_type = 'Aerosol Extinction Coefficient [$m^{-1}$]'
+    alpha_a_mle.profile_type = '$m^{-1}$'
     alpha_a_mle.profile_variance = alpha_a_mle.profile_variance*0.0
     
     fit_mol_mle = MolRawE.copy()
@@ -292,7 +292,7 @@ def MLE_Estimate_OptProp(MolRaw,CombRaw,Beta_A,geo_data,sonde_pres,sonde_temp,so
     xvalid_mle = Beta_A_E.copy()
     xvalid_mle.descript = 'Maximum Likelihood Estimated Data Points'
     xvalid_mle.label = 'MLE Data Points'
-    xvalid_mle.profile_type = 'MLE Data Points'
+    xvalid_mle.profile_type = 'boolian'
     xvalid_mle.profile = xvalid_mle.profile*0
     
     
@@ -393,3 +393,505 @@ def MLE_Estimate_OptProp(MolRaw,CombRaw,Beta_A,geo_data,sonde_pres,sonde_temp,so
         xvalid_mle.profile[pbad,:]= 0
         
     return beta_a_mle,alpha_a_mle,sLR_mle,xvalid_mle,CamList,GmList,GcList,ProfileErrorMol,ProfileErrorComb,fit_mol_mle,fit_comb_mle
+    
+def LREstimate_buildConst_2D(geo_correct,MolScale,beta_m,range_array,dt):
+    geofun = 1/np.interp(range_array,geo_correct['geo_prof'][:,0],geo_correct['geo_prof'][:,1])
+    ConstTerms = dt/geo_correct['Nprof']/geo_correct['tres']*MolScale*beta_m*geofun*np.exp(-2.0*np.cumsum(8*np.pi/3*beta_m,axis=1)*(range_array[1]-range_array[0]))/range_array[np.newaxis,:]**2
+    return ConstTerms
+
+def ProfilesTotalxvalid_2D(x,xvalid,tdim,mol_bs_coeff,Const,Mprof_bg=0,Cprof_bg=0,dt=np.array([1.0])):
+    """
+    dt sets the adjustment factor to convert counts to count rate needed in
+    deadtime correction
+    pdim - profile time dimension
+    """    
+    ix = 5  # sets the profile offset
+    x2D = x[ix:].reshape((tdim,2*xvalid.size))
+    N = mol_bs_coeff.shape[1]  # length of profile    
+    Nx = xvalid.size
+    Cam = x[0]
+    Gm = x[1]  # molecular gain
+    Gc = x[2]   # combinded gain
+    sLR = np.zeros((tdim,N))
+    sLR[:,xvalid] = np.exp(x2D[:,:Nx])  # lidar ratio terms
+    deadtimeMol=x[3]
+    deadtimeComb=x[4]
+#    bgMol = x[5]
+#    bgComb = x[6]
+    
+    Baer = np.zeros((tdim,N))
+    Baer[:,xvalid] = np.exp(x2D[:,Nx:])  # aerosol backscatter terms   
+    
+    Molmodel = Gm*(mol_bs_coeff+Cam*Baer)*Const*np.exp(-2*np.cumsum(sLR*Baer,axis=1))+Mprof_bg[:,np.newaxis]
+    Combmodel = Gc*(mol_bs_coeff+Baer)*Const*np.exp(-2*np.cumsum(sLR*Baer,axis=1))+Cprof_bg[:,np.newaxis]
+    
+#    print(dt)    
+    
+    Molmodel = Molmodel*dt[:,np.newaxis]/(dt[:,np.newaxis]+Molmodel*deadtimeMol)   
+    Combmodel = Combmodel*dt[:,np.newaxis]/(dt[:,np.newaxis]+Combmodel*deadtimeComb) 
+    
+    return Molmodel,Combmodel
+
+def LREstimateTotalxvalid_2D(x,xvalid,Mprof,Cprof,mol_bs_coeff,Const,lam,Mprof_bg=0,Cprof_bg=0,dt=1.0):
+    
+    N = Mprof.shape[1]  # length of profile    
+    tdim = Mprof.shape[0]
+    ix = 5  # sets the profile offset
+    Nx = xvalid.size
+    
+    x2D = x[ix:].reshape((tdim,2*xvalid.size))
+
+    sLR = np.zeros((tdim,N))
+    sLR[:,xvalid] = np.exp(x2D[:,:Nx])  # lidar ratio terms
+    Baer = np.zeros((tdim,N))
+    Baer[:,xvalid] = np.exp(x2D[:,Nx:])  # aerosol backscatter terms
+    BaerExp = np.zeros((tdim,N))
+    BaerExp[:,xvalid] = x2D[:,Nx:]  # aerosol backscatter exponent terms
+
+    Molmodel,Combmodel = ProfilesTotalxvalid_2D(x,xvalid,tdim,mol_bs_coeff,Const,Mprof_bg=Mprof_bg,Cprof_bg=Cprof_bg,dt=dt)
+    dxvalid = np.diff(xvalid)[np.newaxis,:]
+    deriv_t = np.nansum(np.abs(np.diff(sLR[:,xvalid],axis=0)))*lam[0][0] + np.nansum(np.abs(np.diff(BaerExp[:,xvalid],axis=0)))*lam[1][0]
+    deriv_r = np.nansum(np.abs(np.diff(sLR[:,xvalid],axis=1)/dxvalid))*lam[0][1] + np.nansum(np.abs(np.diff(BaerExp[:,xvalid],axis=1)/dxvalid))*lam[1][1]
+    ErrRet = np.nansum((Molmodel-Mprof*np.log(Molmodel)))+np.nansum((Combmodel-Cprof*np.log(Combmodel)))+deriv_t+deriv_r
+    return ErrRet
+
+def LREstimateTotalxvalid_2D_prime(x,xvalid,Mprof,Cprof,mol_bs_coeff,Const,lam,Mprof_bg=0,Cprof_bg=0,dt=1.0):
+
+    N = Mprof.shape[1]  # length of profile    
+    tdim = Mprof.shape[0]
+    ix = 5  # sets the profile offset
+    Nx = xvalid.size
+    
+    x2D = x[ix:].reshape((tdim,2*xvalid.size)) 
+    
+#    ix = 7  # sets the profile offset
+#    N = Mprof.size  # length of profile    
+#    Nx = xvalid.size
+    Cam = x[0]
+    Gm = x[1]  # molecular gain 
+    Gc = x[2]  # combined gain
+    
+    deadtimeMol=x[3]
+    deadtimeComb=x[4]
+#    bgMol = x[5]
+#    bgComb = x[6]
+    
+    sLR = np.zeros((tdim,N))
+    sLR[:,xvalid] = np.exp(x2D[:,:Nx])  # lidar ratio terms
+    Baer = np.zeros((tdim,N))
+    Baer[:,xvalid] = np.exp(x2D[:,Nx:])  # aerosol backscatter terms
+    BaerExp = np.zeros((tdim,N))
+    BaerExp[:,xvalid] = x2D[:,Nx:]  # aerosol backscatter exponent terms
+
+    # obtain models including nonlinear responde
+    Molmodel,Combmodel = ProfilesTotalxvalid_2D(x,xvalid,tdim,mol_bs_coeff,Const,Mprof_bg=Mprof_bg,Cprof_bg=Cprof_bg,dt=dt)
+    
+    # obtain models without nonlinear responde but including background
+    xlin = x.copy()
+    xlin[3] = 0
+    xlin[4] = 0
+    Molmodel1,Combmodel1 = ProfilesTotalxvalid_2D(xlin,xvalid,tdim,mol_bs_coeff,Const,Mprof_bg=Mprof_bg,Cprof_bg=Cprof_bg)
+    
+    #obtain models without nonlinear response or background
+    Molmodel0 = Molmodel1-Mprof_bg[:,np.newaxis]
+    Combmodel0 = Combmodel1-Cprof_bg[:,np.newaxis]
+
+
+    
+    # useful definitions for gradient calculations
+    e0m = (1-Mprof/Molmodel)
+    e0c =(1-Cprof/Combmodel)
+    e_dtm = dt[:,np.newaxis]**2/(dt[:,np.newaxis]+Molmodel1*deadtimeMol)**2
+    e_dtc = dt[:,np.newaxis]**2/(dt[:,np.newaxis]+Combmodel1*deadtimeComb)**2
+    grad0m = np.sum(e0m*e_dtm*Molmodel0,axis=1)[:,np.newaxis]-np.cumsum(e0m*e_dtm*Molmodel0,axis=1)
+    grad0c = np.sum(e0c*e_dtc*Combmodel0,axis=1)[:,np.newaxis]-np.cumsum(e0c*e_dtc*Combmodel0,axis=1)
+    
+    # lidar ratio gradient terms:
+    gradErrS = -2*Baer*sLR*(grad0m+grad0c)
+    gradErrS[np.nonzero(np.isnan(gradErrS))] = 0
+
+    # backscatter cross section gradient terms:
+    gradErrB = -2*sLR*Baer*(grad0m+grad0c)+Baer*e0m*Gm*Const*Cam*np.exp(-2*np.cumsum(sLR*Baer,axis=1))+Baer*e0c*Const*Gc*np.exp(-2*np.cumsum(sLR*Baer,axis=1))
+    gradErrB[np.nonzero(np.isnan(gradErrB))] = 0
+
+    # cross talk gradient term
+    gradErrCam = np.nansum(e0m*e_dtm*Gm*Const*Baer*np.exp(-2*np.cumsum(sLR*Baer,axis=1)))
+
+    # combined gain gradient term
+    gradErrGc = np.nansum(e0c*e_dtc*(mol_bs_coeff+Baer)*Const*np.exp(-2*np.cumsum(sLR*Baer,axis=1)))
+    
+    # molecular gain gradient term
+    gradErrGm = np.nansum(e0m*e_dtm*(mol_bs_coeff+Cam*Baer)*Const*np.exp(-2*np.cumsum(sLR*Baer,axis=1)))
+    
+    # molecular dead time gradient term
+    gradErrDTm = np.nansum(-e0m*dt[:,np.newaxis]*Molmodel1**2/(dt[:,np.newaxis]+Molmodel1*deadtimeMol))
+    
+    # combined dead time gradient term
+    gradErrDTc = np.nansum(-e0c*dt[:,np.newaxis]*Combmodel1**2/(dt[:,np.newaxis]+Combmodel1*deadtimeComb))
+    
+#    # molecular background adjustment term
+#    gradErrBGm = np.nansum(e0m*e_dtm*Mprof_bg)
+#    
+#    # combined background adjustment term
+#    gradErrBGc = np.nansum(e0c*e_dtc*Cprof_bg)
+
+    # total variance gradient terms
+#    gradErr[np.nonzero(np.isnan(gradErr))] = 0
+#    gradErr = gradErr[xvalid]
+    dxvalid = np.diff(xvalid)[np.newaxis,:]
+    gradErrStv = np.zeros((tdim,Nx))
+    gradErrBtv = np.zeros((tdim,Nx))
+    
+    # range derivative for lidar ratio
+    gradpenS = lam[0][1]*np.sign(np.diff(sLR[:,xvalid],axis=1))/dxvalid
+    gradpenS[np.nonzero(np.isnan(gradpenS))] = 0
+    gradErrStv[:,:-1] = gradErrStv[:,:-1]-gradpenS
+    gradErrStv[:,1:] = gradErrStv[:,1:]+gradpenS
+    
+    # time derivative for lidar ratio
+    gradpenS = lam[0][0]*np.sign(np.diff(sLR[:,xvalid],axis=0))
+    gradpenS[np.nonzero(np.isnan(gradpenS))] = 0
+    gradErrStv[:-1,:] = gradErrStv[:-1,:]-gradpenS
+    gradErrStv[1:,:] = gradErrStv[1:,:]+gradpenS
+    
+    # range derivative for aerosol backscatter
+    gradpenB = lam[1][1]*np.sign(np.diff(BaerExp[:,xvalid],axis=1))/dxvalid
+    gradpenB[np.nonzero(np.isnan(gradpenB))] = 0
+    gradErrBtv[:,:-1] = gradErrBtv[:,:-1]-gradpenB
+    gradErrBtv[:,1:] = gradErrBtv[:,1:]+gradpenB
+    
+    # time derivative for aerosol backscatter
+    gradpenB = lam[1][0]*np.sign(np.diff(BaerExp[:,xvalid],axis=0))
+    gradpenB[np.nonzero(np.isnan(gradpenB))] = 0
+    gradErrBtv[:-1,:] = gradErrBtv[:-1,:]-gradpenB
+    gradErrBtv[1:,:] = gradErrBtv[1:,:]+gradpenB
+    
+    gradErr = np.zeros(ix+2*Nx*tdim)
+    gradErr2D = np.zeros((tdim,2*Nx))
+    gradErr[0] = gradErrCam
+    gradErr[1] = gradErrGm
+    gradErr[2] = gradErrGc
+    gradErr[3] = gradErrDTm
+    gradErr[4] = gradErrDTc
+#    gradErr[5] = gradErrBGm
+#    gradErr[6] = gradErrBGc
+    gradErr2D[:,:Nx] = gradErrS[:,xvalid]+gradErrStv
+    gradErr2D[:,Nx:] = gradErrB[:,xvalid]+gradErrBtv
+    
+    gradErr[xi:] = gradErr2D.flatten()
+    
+    return gradErr
+    
+    
+def MLE_Profile_2D(MolRaw,CombRaw,Mol,Comb,Beta_A,geo_data,beta_sonde,minSNR=2.0, \
+        lam=np.array([[0.01,0.01],[0.01,0.01]]),sLRinit=np.array([-24.5,-8.5]), \
+        max_chunk = 120):
+    """
+    Processes a large (or small) profile in chunks.
+    Uses MLE for each chunk and initializes the guesses based on
+    previous chunks.
+    
+    lam - TV penalty coefficients.
+        lam[0,0] - lidar ratio in time
+        lam[0,1] - lidar ratio in range
+        lam[1,0] - log10 aerosol backscatter in time
+        lam[1,1] - log10 aerosol backscatter in range
+    
+    max_chunk - maximum number of time data points allowed in the MLE
+    
+    Calls MLE_2D to perform the optimization.
+    """    
+    # copy all the profiles so we don't change any of them in the routnine
+    MolRawE = MolRaw.copy()
+    CombRawE = CombRaw.copy()
+    Beta_A_E = Beta_A.copy()
+    
+    dR = MolRaw.mean_dR  # store the profile range resolution    
+    
+    
+    # compute smoothed aerosol backscatter for filtering
+    MolE = Molecular.copy()
+    MolE.conv(4,2)
+    CombE = CombHi.copy()
+    CombE.conv(4,2)
+
+    aer_beta_E = lp.AerosolBackscatter(MolE,CombE,beta_mol_sonde)
+    
+#    beta_m_sonde,sonde_time,sonde_index_prof = lp.get_beta_m_sonde(MolRawE,Years,Months,Days,sonde_path,interp=True)
+    
+    rate_adj = 1.0/(MolRawE.shot_count*MolRawE.NumProfList*MolRawE.binwidth_ns*1e-9) # factor for obtaining photon arrival rate
+
+    tdim = MolRaw.time.size
+    
+    
+    ConstTerms = Nprof[:,np.newaxis]*LREstimate_buildConst_2D(geo_data,1,beta_m_sonde.profile,MolRawE.range_array,MolRawE.mean_dt)
+    ConstTerms = ConstTerms/beta_m_sonde.profile
+    
+    CamList = np.zeros(CombRawE.time.size)
+    GmList = np.zeros(CombRawE.time.size)
+    GcList = np.zeros(CombRawE.time.size)
+    DTmList = np.zeros(CombRawE.time.size)
+    DTcList = np.zeros(CombRawE.time.size)
+    
+    # Pre allocate the profile variables
+    sLR_mle = Beta_A_E.copy()
+    sLR_mle.descript = 'Maximum Likelihood Estimate of Aerosol Lidar Ratio sr'
+    sLR_mle.label = 'Aerosol Lidar Ratio'
+    sLR_mle.profile_type = '$sr$'
+    sLR_mle.profile_variance = sLR_mle.profile_variance*0.0
+    sLR_mle.profile = sLR_mle.profile*0.0
+
+    beta_a_mle = Beta_A_E.copy()
+    beta_a_mle.descript = 'Maximum Likelihood Estimate of Aerosol Backscatter Coefficient in m^-1 sr^-1'
+    beta_a_mle.label = 'Aerosol Backscatter Coefficient'
+    beta_a_mle.profile_type = '$m^{-1}sr^{-1}$'
+    beta_a_mle.profile_variance = beta_a_mle.profile_variance*0.0
+    beta_a_mle.profile = beta_a_mle.profile*0.0
+    
+    alpha_a_mle = Beta_A_E.copy()
+    alpha_a_mle.descript = 'Maximum Likelihood Estimate of Aerosol Extinction Coefficient in m^-1'
+    alpha_a_mle.label = 'Aerosol Extinction Coefficient'
+    alpha_a_mle.profile_type = '$m^{-1}$'
+    alpha_a_mle.profile_variance = alpha_a_mle.profile_variance*0.0
+    alpha_a_mle.profile = alpha_a_mle.profile*0.0
+    
+    fit_mol_mle = MolRawE.copy()
+    fit_mol_mle.profile = fit_mol_mle.profile*0
+    fit_mol_mle.slice_range_index(range_lim=[0,Beta_A_E.profile.shape[1]])
+    fit_mol_mle.descript = 'Maximum Likelihood Estimate of ' + fit_mol_mle.descript
+    fit_comb_mle = CombRawE.copy()
+    fit_comb_mle.profile = fit_comb_mle.profile*0
+    fit_comb_mle.slice_range_index(range_lim=[0,Beta_A_E.profile.shape[1]])
+    fit_comb_mle.descript = 'Maximum Likelihood Estimate of ' + fit_comb_mle.descript
+    
+    xvalid_mle = Beta_A_E.copy()
+    xvalid_mle.descript = 'Maximum Likelihood Estimated Data Points'
+    xvalid_mle.label = 'MLE Data Points'
+    xvalid_mle.profile_type = 'boolian'
+    xvalid_mle.profile = xvalid_mle.profile*0
+    
+    
+def MLE_2D(MolRawE,CombRawE,Beta_A_E,xvalid2D,Comb,Beta_A,geo_data,beta_mol_sonde, \
+        tlim=np.array([np.nan,np.nan]),minSNR=2.0, \
+        lam=np.array([[0.01,0.01],[0.01,0.01]]),sLRinit=np.array([-24.5,-8.5]),dG=0.04, \
+        fitfilt=True):
+    
+    # Estimate Profile Backgrounds
+    Nprof = MolRawE.NumProfList
+    FitMol = MolRawE.NumProfList[:,np.newaxis]*MolRawE.profile
+    FitMol_bg = MolRawE.NumProfList*np.nanmean(MolRawE.profile[:,-50:],axis=1)
+    
+    FitComb = CombRawE.NumProfList[:,np.newaxis]*CombRawE.profile
+    FitComb_bg = CombRawE.NumProfList*np.nanmean(CombRawE.profile[:,-50:],axis=1)  
+    
+    # pad aerosol profile if it has been fewer range bins than the raw photon counts    
+    FitAer = Beta_A_E.profile
+    FitAer = np.hstack((FitAer,np.zeros((FitAer.shape[0],FitMol.shape[1]-FitAer.shape[1]))))
+    FitAer[np.nonzero(np.isnan(FitAer))[0]]=0
+            
+    xvalid2D = np.zeros(FitComb.shape)
+    xvalid = np.nonzero(np.sum(aer_beta_E.SNR()>minSNR,axis=0))[0]
+    xvalid2D[:,xvalid] = 1
+    
+    sLR2D = np.zeros(FitAer.shape)
+    beta_a_2D = np.zeros(FitAer.shape)
+    #alpha_a_2D = np.zeros(FitAer.shape)
+    fit_mol_2D = np.zeros(FitAer.shape)
+    fit_comb_2D = np.zeros(FitAer.shape)
+    
+    fxVal = np.zeros(Interval)
+    opt_iterations = np.zeros(Interval)
+    opt_exit_mode = np.zeros(Interval)
+    str_exit_mode_list = []
+    
+
+############ Iterate on Profile Profile Lidar Ratio AND Backscatter Coefficient XVALID in 1D ############
+b = np.argmin(np.abs(aer_beta_dlb.time/3600-0.0))  # 6.3, 15
+Interval = MolRaw.time.size  # 
+minSNR = 2.0 # min aerosol snr to include as an optimization parameter.  Typically 2.0
+sLRinitial = 35  # initial assumed lidar ratio if no prior data exists
+dG = 0.04  # allowed change in channel gain between data points
+use_mask = False
+
+xi = 5  # number of header variables (cross talk, gain for both channels, deadtime for both channels)
+
+#lam = np.array([4,0.000001])  # Penalty for [Lidar ratio, Backscatter Coefficient]  [0.0005,0.0005]
+#lam = np.array([4.0,0.0000001])
+lam = [[0.01,0.01],[0.01,0.01]]
+
+dt0 = time()
+
+MolRawE = MolRaw.copy()
+CombRawE = CombRaw.copy()
+
+# lower resolution profiles to obtain better cloud detection
+MolE = Molecular.copy()
+MolE.conv(4,2)
+CombE = CombHi.copy()
+CombE.conv(4,2)
+
+aer_beta_E = lp.AerosolBackscatter(MolE,CombE,beta_mol_sonde)
+
+Nprof = MolRawE.NumProfList[b:b+Interval]
+FitMol = Nprof[:,np.newaxis]*MolRawE.profile[b:b+Interval,:]
+FitMol_bg = Nprof*np.nanmean(MolRawE.profile[b:b+Interval,-50:],axis=1)
+
+FitComb = Nprof[:,np.newaxis]*CombRawE.profile[b:b+Interval,:]
+FitComb_bg = Nprof*np.nanmean(CombRawE.profile[b:b+Interval,-50:],axis=1)
+
+FitAer = aer_beta_E.profile[b:b+Interval,:]
+FitAer = np.hstack((FitAer,np.zeros((FitAer.shape[0],FitMol.shape[1]-FitAer.shape[1]))))
+FitAer[np.nonzero(np.isnan(FitAer))[0]]=0
+
+beta_m_sonde,sonde_time,sonde_index_prof = lp.get_beta_m_sonde(MolRawE,Years,Months,Days,sonde_path,interp=True)
+
+dR = MolRaw.mean_dR
+
+rate_adj = 1.0/(MolRawE.shot_count*MolRawE.NumProfList*MolRawE.binwidth_ns*1e-9)
+
+tdim = MolRaw.time.size
+
+
+#LREstimate_buildConst_2D(geo_correct,MolScale,beta_m,range_array):
+ConstTerms = Nprof[:,np.newaxis]*LREstimate_buildConst_2D(geo_data,1,beta_m_sonde.profile,MolRawE.range_array)
+ConstTerms = ConstTerms/beta_m_sonde.profile
+
+xvalid2D = np.zeros(FitComb.shape)
+CamList = np.zeros(Interval)
+GmList = np.zeros(Interval)
+GcList = np.zeros(Interval)
+Dtmol = np.zeros(Interval)
+Dtcomb = np.zeros(Interval)
+fbgmol = np.zeros(Interval)
+fbgcomb = np.zeros(Interval)
+sLR2D = np.zeros(FitAer.shape)
+beta_a_2D = np.zeros(FitAer.shape)
+#alpha_a_2D = np.zeros(FitAer.shape)
+fit_mol_2D = np.zeros(FitAer.shape)
+fit_comb_2D = np.zeros(FitAer.shape)
+
+fxVal = np.zeros(Interval)
+opt_iterations = np.zeros(Interval)
+opt_exit_mode = np.zeros(Interval)
+str_exit_mode_list = []
+
+
+xvalid = np.nonzero(np.sum(aer_beta_E.SNR()>minSNR,axis=0))[0]
+xvalid2D[:,xvalid] = 1
+
+prefactor = 1.0# 1e-7
+#nonlinear
+FitProfMol = lambda x: prefactor*LREstimateTotalxvalid_2D(x,xvalid,FitMol,FitComb,beta_m_sonde.profile,ConstTerms,lam,Mprof_bg=FitMol_bg,Cprof_bg=FitComb_bg,dt=rate_adj)
+FitProfMolDeriv = lambda x: prefactor*LREstimateTotalxvalid_2D_prime(x,xvalid,FitMol,FitComb,beta_m_sonde.profile,ConstTerms,lam,Mprof_bg=FitMol_bg,Cprof_bg=FitComb_bg,dt=rate_adj)
+
+
+bndsP = np.zeros((xi+2*xvalid.size*tdim,2))
+bndsP[0,0] = 0.0
+bndsP[0,1] = 0.1
+bndsP[1,0] = 0.5
+bndsP[1,1] = 0.9
+bndsP[2,0] = 0.8
+bndsP[2,1] = 1.2
+
+bndsP[3,0] = 0.0  # molecular deadtime
+bndsP[3,1] = 100e-9
+bndsP[4,0] = 0.0 # combined deeadtime
+bndsP[4,1] = 100e-9
+
+bnds2D = np.zeros((tdim,2*xvalid.size))
+bnds2D[:,:xvalid.size] = np.log(1.0*dR)  # lidar ratio lower limit
+bnds2D[:,xvalid.size:] = np.log(1e-12)   # aerosol coefficient lower limit
+bndsP[xi:,0] = bnds2D.flatten()
+
+bnds2D = np.zeros((tdim,2*xvalid.size))
+bnds2D[:,:xvalid.size] = np.log(2e2*dR)  # lidar ratio upper limit
+bnds2D[:,xvalid.size:] = np.log(1e-2)   # aerosol coefficient upper limit
+bndsP[xi:,1] = bnds2D.flatten()
+
+
+x0 = np.zeros((xi+2*xvalid.size*tdim))
+x0[0] = 0.03  # Cam
+x0[1] = 0.7545  # Gt
+x0[2] = 1.0104
+x0[3] = 48e-9  # molecular deadtime
+x0[4] = 10e-9  # combined deadtime
+
+x02D = np.zeros((tdim,2*xvalid.size))
+x02D[:,:xvalid.size] = np.log((-8.5*np.log10(FitAer[:,xvalid])-24.5)*dR)  # lidar ratio
+x02D[:,xvalid.size:] = np.log(aer_beta_dlb.profile[:,xvalid])  # aerosol backscatter
+x0[xi:] = x02D.flatten()
+
+sol1D,opt_iterations,opt_exit_mode = scipy.optimize.fmin_tnc(FitProfMol,x0,bounds=bndsP,fprime=FitProfMolDeriv,maxfun=2000,eta=1e-9)
+
+sol2D = sol1D[xi:].reshape((tdim,2*xvalid.size))
+beta_a_2D[:,xvalid] = np.exp(sol2D[:,xvalid.size:])
+sLR2D[:,xvalid] = np.exp(sol2D[:,:xvalid.size])/dR
+
+Cam = sol1D[0]
+Gm = sol1D[1]
+Gc = sol1D[2]
+DTmol = sol1D[3]
+DTcomb = sol1D[4]
+
+
+#    fit_mol_2D[pI,:],fit_comb_2D[pI,:] = ProfilesTotalxvalid(wMol,xvalid,beta_m_sonde.profile[pI,:],ConstTerms[pI,:],Mprof_bg=FitMol_bg[pI],Cprof_bg=FitComb_bg[pI])
+#ProfilesTotalxvalid_2D(x,xvalid,tdim,mol_bs_coeff,Const,Mprof_bg=0,Cprof_bg=0,dt=np.array([1.0]))
+fit_mol_2D,fit_comb_2D = ProfilesTotalxvalid_2D(sol1D,xvalid,tdim,beta_m_sonde.profile,ConstTerms,Mprof_bg=FitMol_bg,Cprof_bg=FitComb_bg,dt=rate_adj)
+
+alpha_a_2D = beta_a_2D*sLR2D
+
+ProfileError = np.sqrt(np.sum((FitComb-fit_comb_2D)**2+(FitMol-fit_mol_2D)**2,axis=1))
+
+dt1 = time()-dt0
+
+# attempt to remove profiles where the fit was bad
+pbad = np.nonzero(np.abs(np.diff(ProfileError)/ProfileError[:-1])>3)[0]+1
+xvalid2D[pbad,:]= 0
+pbad = np.nonzero(np.abs(np.diff(ProfileError)/ProfileError[1:])>3)[0]
+xvalid2D[pbad,:]= 0
+
+# Merge with original aerosol data set
+beta_merge = aer_beta_dlb.copy()
+beta_a_2D_adj = beta_a_2D[:,:aer_beta_dlb.profile.shape[1]]
+iMLE = np.nonzero(xvalid2D)
+beta_merge.profile[iMLE] = beta_a_2D_adj[iMLE]
+beta_merge.descript = 'Maximum Likelihood Estimate of Aerosol Backscatter Coefficient in m^-1 sr^-1'
+
+
+
+sLR_mle = aer_beta_dlb.copy()
+sLR_mle.profile = sLR2D[:,:aer_beta_dlb.profile.shape[1]].copy()
+sLR_mle.descript = 'Maximum Likelihood Estimate of Aerosol Lidar Ratio sr'
+sLR_mle.label = 'Aerosol Lidar Ratio'
+sLR_mle.profile_type = '$sr$'
+sLR_mle.profile_variance = sLR_mle.profile_variance*0.0
+
+beta_a_mle = aer_beta_dlb.copy()
+beta_a_mle.profile = beta_a_2D[:,:aer_beta_dlb.profile.shape[1]].copy()
+beta_a_mle.descript = 'Maximum Likelihood Estimate of Aerosol Backscatter Coefficient in m^-1 sr^-1'
+beta_a_mle.label = 'Aerosol Backscatter Coefficient'
+beta_a_mle.profile_type = '$m^{-1}sr^{-1}$'
+beta_a_mle.profile_variance = beta_a_mle.profile_variance*0.0
+
+alpha_a_mle = aer_beta_dlb.copy()
+alpha_a_mle.profile = alpha_a_2D[:,:aer_beta_dlb.profile.shape[1]].copy()
+alpha_a_mle.descript = 'Maximum Likelihood Estimate of Aerosol Extinction Coefficient in m^-1'
+alpha_a_mle.label = 'Aerosol Extinction Coefficient'
+alpha_a_mle.profile_type = '$m^{-1}$'
+alpha_a_mle.profile_variance = alpha_a_mle.profile_variance*0.0
+
+fit_mol_mle = MolRawE.copy()
+fit_mol_mle.profile = fit_mol_2D.copy()
+fit_mol_mle.slice_range_index(range_lim=[0,aer_beta_dlb.profile.shape[1]])
+fit_mol_mle.descript = 'Maximum Likelihood Estimate of ' + fit_mol_mle.descript
+fit_comb_mle = CombRawE.copy()
+fit_comb_mle.profile = fit_comb_2D.copy()
+fit_comb_mle.slice_range_index(range_lim=[0,aer_beta_dlb.profile.shape[1]])
+fit_comb_mle.descript = 'Maximum Likelihood Estimate of ' + fit_comb_mle.descript
+
+xvalid_mle = aer_beta_dlb.copy()
+xvalid_mle.profile = xvalid2D[:,:aer_beta_dlb.profile.shape[1]].copy()
+xvalid_mle.descript = 'Maximum Likelihood Estimated Data Points'
+xvalid_mle.label = 'MLE Data Point Mask'
+xvalid_mle.profile_type = 'MLE Data Point Mask'
+xvalid_mle.profile_variance = xvalid_mle.profile*0
