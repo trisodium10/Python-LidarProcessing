@@ -14,7 +14,6 @@ Created on Wed Jan  4 08:45:42 2017
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.io import netcdf
 import LidarProfileFunctions as lp
 import WVProfileFunctions as wv
 import scipy.interpolate
@@ -23,45 +22,29 @@ import FourierOpticsLib as FO
 
 import datetime
 
-import glob
+#import glob
 
+Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,5,12,startHr=0,duration=24)
 
-#filePath = '/scr/eldora1/MSU_h2o_data/2016/161209NF/18/'
-#fileName1 = 'Online_Raw_Data.dat'  # molecular
-#fileName2 = 'Offline_Raw_Data.dat'  # combined
-
-#Day = 4
-#Month = 1
-#Year = 2017
-#HourLim = np.array([0,24])  # Limits on the processing time
-#
-#
-# Set the process chunk in year, month, day and duration
-# function format:
-# generate_WVDIAL_day_list(startYr,startMo,startDay,startHr=0,duration=0.0,stopYr=0,stopMo=0,stopDay=0,stopHr=24)
-# duration is set in hours
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2016,12,28,startHr=6.0,duration=1.0) #,stopYr=0,stopMo=0,stopDay=0,stopHr=24):
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2016,12,28,startHr=13.5,stopYr=2017,stopMo=1,stopDay=2)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2016,12,27,startHr=19.85,stopHr=19.95)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,19,startHr=22.0,duration=1.0)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,21,startHr=19.3,duration=1.5)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,17,startHr=10.0,duration=1.0)
-
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,27,startHr=13.75,duration=0.1)
-Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,5,11,startHr=0,duration=24)
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,2)
-
-#Years,Months,Days,Hours = lp.generate_WVDIAL_day_list(2017,1,12,stopDay=19)
 
 plotAsDays = False
 getMLE_extinction = False
 run_MLE = False
 runKlett = False
 
-save_as_nc = False
-save_figs = False
+save_as_nc = True
+save_figs = True
 
 run_geo_cal = False
+
+nctag = ''
+
+use_diff_geo = False   # no diff geo correction after April ???
+use_geo = True
+
+use_mask = False
+SNRmask = 0.0  #SNR level used to decide what data points we keep in the final data product
+countLim = 2.0
 
 ProcStart = datetime.date(Years[0],Months[0],Days[0])
 
@@ -76,27 +59,16 @@ tres_hsrl = 0.5*60.0
 tres_wv = 0.5*60.0
 zres = 1.0  # resolution in altitude points (75 m)
 
-use_diff_geo = False   # no diff geo correction after April ???
-use_geo = False
-
-use_mask = False
-SNRmask = 0.0  #SNR level used to decide what data points we keep in the final data product
-countLim = 2.0
-
-#kB = 1.3806504e-23;
-#c = 3e8
 
 MCSbins = 280*2  # number of bins in a range resolved profile,  280-typical became 1400 on 2/22/2017
 BinWidth = 250e-9 # MCS timing bin width in seconds.  typically 500e-9 before April ?.  250e-9 after April ?
 dR = BinWidth*lp.c/2  # profile range resolution (500e-9*c/2)-typical became 100e-9*c/2 on 2/22/2017
 dt = 2  # profile accumulation time
-Roffset = ((1.25+0.5)-0.5/2)*150  # offset in range
+Roffset = -((1.25+0.5)-0.5/2)*150  # offset in range
 
 BGIndex = -50; # negative number provides an index from the end of the array
 Cam = 0.00 # Cross talk of aerosols into the molecular channel - 0.005 on Dec 21 2016 after 18.5UTC
             # 0.033 found for 4/18/2017 11UTC extinction test case
-
-
 
 basepath = '/scr/eldora1/MSU_h2o_data/'
 
@@ -112,6 +84,11 @@ save_data_path = '/h/eol/mhayman/DIAL/Processed_Data/'
 save_fig_path = '/h/eol/mhayman/DIAL/Processed_Data/Plots/'
 sonde_path = '/scr/eldora1/HSRL_data/'
 
+
+if save_as_nc or save_figs:
+    ncfilename0 = lp.create_ncfilename('MSU_WVDIAL_DLBHSRL',Years,Months,Days,Hours,tag=nctag)
+    ncfilename = save_data_path+ncfilename0
+    figfilename = save_fig_path + ncfilename0[:-3] + nctag
 
 
 #geo_file = '/h/eol/mhayman/PythonScripts/HSRL_Processing/NewHSRLPython/calibrations/geo_DLB_20170413.npz'  # obtained using OD, includes variance in profile
@@ -136,214 +113,18 @@ else:
 MasterTimeHSRL = np.arange(Hours[0,0]*3600,Days.size*24*3600-(24-Hours[-1,-1])*3600,tres_hsrl)
 MasterTimeWV = np.arange(Hours[0,0]*3600,Days.size*24*3600-(24-Hours[-1,-1])*3600,tres_wv)
 
-profHSRL,lambda_hsrl,HourLim = wv.Load_DLB_Data(basepath,FieldLabel_HSRL,[MolFileBase,CombFileBase],MasterTimeHSRL,Years,Months,Days,Hours,MCSbins,lidar='DLB-HSRL',dt=dt,Roffset=Roffset,BinWidth=BinWidth)
-Molecular = profHSRL[0].copy()
-CombHi = profHSRL[1].copy()
+#profHSRL,lambda_hsrl,HourLim = wv.Load_DLB_Data(basepath,FieldLabel_HSRL,[MolFileBase,CombFileBase],MasterTimeHSRL,Years,Months,Days,Hours,MCSbins,lidar='DLB-HSRL',dt=dt,Roffset=Roffset,BinWidth=BinWidth)
+#Molecular = profHSRL[0].copy()
+#CombHi = profHSRL[1].copy()
 
-profWV,lambda_wv,HourLim = wv.Load_DLB_Data(basepath,FieldLabel_WV,[ON_FileBase,OFF_FileBase],MasterTimeWV,Years,Months,Days,Hours,MCSbins,lidar='WV-DIAL',dt=dt,Roffset=Roffset,BinWidth=BinWidth)
-OnLine = profWV[0].copy()
-OffLine = profWV[1].copy()
-lambda_on = lambda_wv[0].copy()
-lambda_off = lambda_wv[1].copy()
+#profWV,lambda_wv,HourLim = wv.Load_DLB_Data(basepath,FieldLabel_WV,[ON_FileBase,OFF_FileBase],MasterTimeWV,Years,Months,Days,Hours,MCSbins,lidar='WV-DIAL',dt=dt,Roffset=Roffset,BinWidth=BinWidth)
+#OnLine = profWV[0].copy()
+#OffLine = profWV[1].copy()
+#lambda_on = lambda_wv[0].copy()
+#lambda_off = lambda_wv[1].copy()
 
-#firstFile = True
-#firstFile_wv = True
-#firstFile_hsrl = True
-#
-#for dayindex in range(Years.size):
-#
-#    if Days[dayindex] < 10:
-#        DayStr = '0' + str(Days[dayindex])
-#    else:
-#        DayStr = str(Days[dayindex])
-#        
-#    if Months[dayindex] < 10:
-#        MonthStr = '0' + str(Months[dayindex])
-#    else:
-#        MonthStr = str(Months[dayindex])
-#    
-#    YearStr = str(Years[dayindex])
-#    HourLim = Hours[:,dayindex]
-#    
-#    # calculate the time offset due to being a different day than we started with
-#    if firstFile:
-#        deltat_0 = 0;
-#    else:
-#        deltat_0_date = datetime.date(Years[dayindex],Months[dayindex],Days[dayindex])-datetime.date(Years[0],Months[0],Days[0])
-#        deltat_0 = deltat_0_date.days
-#        
-#    FilePath0_wv = basepath + YearStr + '/' + YearStr[-2:] + MonthStr + DayStr + FieldLabel_WV
-#    FilePath0_hsrl = basepath + YearStr + '/' + YearStr[-2:] + MonthStr + DayStr + FieldLabel_HSRL
-#    
-#    SubDirs_wv = glob.glob(FilePath0_wv+'/*/')
-#    SubDirs_hsrl = glob.glob(FilePath0_hsrl+'/*/')
-#    
-#    for idir in range(len(SubDirs_wv)):
-#        Hour = np.double(SubDirs_wv[idir][-3:-1])
-#        if Hour >= np.floor(HourLim[0]) and Hour <= HourLim[1]:
-#            
-#            # WV DIAL DATA
-#            loadfile_on = SubDirs_wv[idir]+ON_FileBase
-#            loadfile_off = SubDirs_wv[idir]+OFF_FileBase
-#            Hour = np.double(SubDirs_wv[idir][-3:-1])
-#            
-#            #### LOAD NETCDF DATA ####
-#            on_data,on_vars = lp.read_WVDIAL_binary(loadfile_on,MCSbins)
-#            off_data,off_vars = lp.read_WVDIAL_binary(loadfile_off,MCSbins)
-#            
-#            timeDataOn =3600*24*(np.remainder(on_vars[0,:],1)+deltat_0)
-#            timeDataOff =3600*24*(np.remainder(off_vars[0,:],1)+deltat_0)
-#            
-#            wavelen_on0 = on_vars[1,:]*1e-9      
-#            wavelen_off0 = off_vars[1,:]*1e-9 
-#            
-#            shots_on = np.ones(np.shape(timeDataOn))*np.mean(on_vars[6,:])
-#            shots_off = np.ones(np.shape(timeDataOff))*np.mean(on_vars[6,:])
-#            
-#            itimeBad = np.nonzero(np.diff(timeDataOn)<0)[0]        
-#            if itimeBad.size > 0:
-#                timeDataOn[itimeBad+1] = timeDataOn[itimeBad]+dt
-#                
-#            itimeBad = np.nonzero(np.diff(timeDataOff)<0)[0]        
-#            if itimeBad.size > 0:
-#                timeDataOff[itimeBad+1] = timeDataOff[itimeBad]+dt       
-#            
-#            # load profile data
-#            if firstFile_wv:
-#                # WV-DIAL DATA
-#                OnLine = lp.LidarProfile(on_data.T,timeDataOn,label='Online Backscatter Channel',descript = 'Unpolarization\nOnline WV-DIAL Backscatter Returns',bin0=-Roffset/dR,lidar='WV-DIAL',shot_count=shots_on,binwidth=BinWidth,StartDate=ProcStart)
-#                OnLine.wavelength = wavelen_on0[0]
-##                RemMol = Molecular.time_resample(delta_t=tres,t0=HourLim[0]*3600,update=True,remainder=True)
-#                RemOn = OnLine.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                
-#                OffLine = lp.LidarProfile(off_data.T,timeDataOff,label='Offline Backscatter Channel',descript = 'Unpolarization\nOffline WV-DIAL Backscatter Returns',bin0=-Roffset/dR,lidar='WV-DIAL',shot_count=shots_off,binwidth=BinWidth,StartDate=ProcStart)
-#                OffLine.wavelength = wavelen_off0[0]
-##                RemCom = CombHi.time_resample(delta_t=tres,t0=HourLim[0]*3600,update=True,remainder=True)
-#                RemOff = OffLine.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                
-#                wavelen_on = wavelen_on0
-#                wavelen_off = wavelen_off0           
-#                
-#                t_WL_on = timeDataOn
-#                t_WL_off = timeDataOff
-#                
-#                firstFile_wv = False
-#                
-#                
-#            else:
-#                if np.size(RemOn.time) > 0:
-#                    # WV-DIAL
-#                    OnTmp = lp.LidarProfile(on_data.T,timeDataOn,label='Online Backscatter Channel',descript = 'Unpolarization\nOnline WV-DIAL Backscatter Returns',bin0=-Roffset/dR,lidar='WV-DIAL',shot_count=shots_on,binwidth=BinWidth,StartDate=ProcStart)
-#                    OnTmp.cat_time(RemOn)
-#                    RemOn = OnTmp.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                    OnLine.cat_time(OnTmp,front=False)
-#                    
-#                    OffTmp = lp.LidarProfile(off_data.T,timeDataOff,label='Offline Backscatter Channel',descript = 'Unpolarization\nOffline WV-DIAL Backscatter Returns',bin0=-Roffset/dR,lidar='WV-DIAL',shot_count=shots_off,binwidth=BinWidth,StartDate=ProcStart)
-#                    OffTmp.cat_time(RemOff)
-#                    RemOff = OffTmp.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                    OffLine.cat_time(OffTmp,front=False)
-#
-#                else:
-#                    # WV-DIAL
-#                    OnTmp = lp.LidarProfile(off_data.T,timeDataOn,label='Online Backscatter Channel',descript = 'Unpolarization\nOnline WV-DIAL Backscatter Returns',bin0=-Roffset/dR,lidar='WV-DIAL',shot_count=shots_on,binwidth=BinWidth,StartDate=ProcStart)
-#                    RemOn = OnTmp.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                    OnLine.cat_time(OnTmp,front=False)
-#                    
-#                    OffTmp = lp.LidarProfile(off_data.T,timeDataOff,label='Offline Backscatter Channel',descript = 'Unpolarization\nOffline WV-DIAL Backscatter Returns',bin0=-Roffset/dR,lidar='WV-DIAL',shot_count=shots_on,binwidth=BinWidth,StartDate=ProcStart)                
-#                    RemOff = OffTmp.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                    OffLine.cat_time(OffTmp,front=False)
-#                    
-#                wavelen_on = np.concatenate((wavelen_on,wavelen_on0))
-#                wavelen_off = np.concatenate((wavelen_off,wavelen_off0))
-#                # time data corresponding to wavelength data
-#                t_WL_on = np.concatenate((t_WL_on,timeDataOn))
-#                t_WL_off = np.concatenate((t_WL_off,timeDataOff))
-#    
-#    for idir in range(len(SubDirs_hsrl)):
-#        Hour = np.double(SubDirs_hsrl[idir][-3:-1])
-#        if Hour >= np.floor(HourLim[0]) and Hour <= HourLim[1]:
-#            # HSRL DATA
-#            loadfile_mol = SubDirs_hsrl[idir]+MolFileBase
-#            loadfile_comb = SubDirs_hsrl[idir]+CombFileBase
-#            Hour = np.double(SubDirs_hsrl[idir][-3:-1])
-#            
-#            #### LOAD NETCDF DATA ####
-#            mol_data,mol_vars = lp.read_WVDIAL_binary(loadfile_mol,MCSbins)
-#            hi_data,hi_vars = lp.read_WVDIAL_binary(loadfile_comb,MCSbins)
-#                   
-#            
-#            timeDataM =3600*24*(np.remainder(mol_vars[0,:],1)+deltat_0)
-#            timeDataT =3600*24*(np.remainder(hi_vars[0,:],1)+deltat_0)
-#            
-#            shots_m = np.ones(np.shape(timeDataM))*np.mean(mol_vars[6,:])
-#            shots_t = np.ones(np.shape(timeDataT))*np.mean(mol_vars[6,:])
-#            
-#            itimeBad = np.nonzero(np.diff(timeDataM)<0)[0]        
-#            if itimeBad.size > 0:
-#                timeDataM[itimeBad+1] = timeDataM[itimeBad]+dt
-#                
-#            itimeBad = np.nonzero(np.diff(timeDataT)<0)[0]        
-#            if itimeBad.size > 0:
-#                timeDataT[itimeBad+1] = timeDataT[itimeBad]+dt                  
-#            
-#            # load profile data
-#            if firstFile_hsrl:             
-#                # HSRL
-#                Molecular = lp.LidarProfile(mol_data.T,timeDataM,label='Molecular Backscatter Channel',descript = 'Unpolarization\nMolecular Backscatter Returns',bin0=-Roffset/dR,lidar='DLB-HSRL',shot_count=shots_m,binwidth=BinWidth,StartDate=ProcStart)
-#                RemMol = Molecular.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                
-#                CombHi = lp.LidarProfile(hi_data.T,timeDataT,label='Total Backscatter Channel',descript = 'Unpolarization\nHigh Gain\nCombined Aerosol and Molecular Returns',bin0=-Roffset/dR,lidar='DLB-HSRL',shot_count=shots_t,binwidth=BinWidth,StartDate=ProcStart)
-#                RemCom = CombHi.time_resample(tedges=MasterTime,update=True,remainder=True)                
-#                
-#                firstFile_hsrl = False
-#                
-#                
-#            else:
-#                if np.size(RemOn.time) > 0:
-#                    
-#                    # HSRL
-#                    MolTmp = lp.LidarProfile(mol_data.T,timeDataM,label='Molecular Backscatter Channel',descript = 'Unpolarization\nMolecular Backscatter Returns',bin0=-Roffset/dR,lidar='DLB-HSRL',shot_count=shots_m,binwidth=BinWidth,StartDate=ProcStart)
-#                    MolTmp.cat_time(RemMol)
-#                    RemMol = MolTmp.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                    Molecular.cat_time(MolTmp,front=False)
-#                    
-#                    ComTmp = lp.LidarProfile(hi_data.T,timeDataT,label='Total Backscatter Channel',descript = 'Unpolarization\nHigh Gain\nCombined Aerosol and Molecular Returns',bin0=-Roffset/dR,lidar='DLB-HSRL',shot_count=shots_t,binwidth=BinWidth,StartDate=ProcStart)
-#                    ComTmp.cat_time(RemCom)
-#                    RemCom = ComTmp.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                    CombHi.cat_time(ComTmp,front=False)
-#                else:
-#                    
-#                    # HSRL
-#                    MolTmp = lp.LidarProfile(mol_data.T,timeDataM,label='Molecular Backscatter Channel',descript = 'Unpolarization\nMolecular Backscatter Returns',bin0=-Roffset/dR,lidar='DLB-HSRL',shot_count=shots_m,binwidth=BinWidth,StartDate=ProcStart)
-#                    RemMol = MolTmp.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                    Molecular.cat_time(MolTmp,front=False)
-#                    
-#                    ComTmp = lp.LidarProfile(hi_data.T,timeDataT,label='Total Backscatter Channel',descript = 'Unpolarization\nHigh Gain\nCombined Aerosol and Molecular Returns',bin0=-Roffset/dR,lidar='DLB-HSRL',shot_count=shots_t,binwidth=BinWidth,StartDate=ProcStart)                
-#                    RemCom = ComTmp.time_resample(tedges=MasterTime,update=True,remainder=True)
-#                    CombHi.cat_time(ComTmp,front=False)
-#                
-#                
-#                
-##            print(Molecular.profile.shape)
-##            print(CombHi.profile.shape)
-#
-## estimate the wavelength as a function of time on the processed time grid
-#dt_WL = np.mean(np.diff(t_WL_on))
-#conv_kern = np.ones(np.ceil(OnLine.mean_dt/dt_WL))
-#conv_kern = conv_kern/np.sum(conv_kern)
-#wavelen_on_filt = np.convolve(conv_kern,wavelen_on,'valid')
-#wavelen_off_filt = np.convolve(conv_kern,wavelen_off,'valid')
-#t_WL_on_filt = np.convolve(conv_kern,t_WL_on,'valid')
-#t_WL_off_filt = np.convolve(conv_kern,t_WL_off,'valid')
-#
-#lambda_on = np.interp(OnLine.time,t_WL_on_filt,wavelen_on_filt)
-#lambda_off = np.interp(OnLine.time,t_WL_off_filt,wavelen_off_filt)
-
-
-
-# Update the HourLim definition to account for multiple days.  Plots use this
-# to display only the desired plot portion.
-#HourLim = np.array([Hours[0,0],Hours[1,-1]+deltat_0*24])
+[Molecular,CombHi],lambda_hsrl,HourLim = wv.Load_DLB_Data(basepath,FieldLabel_HSRL,[MolFileBase,CombFileBase],MasterTimeHSRL,Years,Months,Days,Hours,MCSbins,lidar='DLB-HSRL',dt=dt,Roffset=Roffset,BinWidth=BinWidth)
+[OnLine,OffLine],[lambda_on,lambda_off],HourLim = wv.Load_DLB_Data(basepath,FieldLabel_WV,[ON_FileBase,OFF_FileBase],MasterTimeWV,Years,Months,Days,Hours,MCSbins,lidar='WV-DIAL',dt=dt,Roffset=Roffset,BinWidth=BinWidth)
 
 # WV-DIAL
 OnLine.conv(5.0*60.0/tres_wv/2,4.0/2)
@@ -438,7 +219,8 @@ CombHi.slice_range_index(range_lim=[1,1e6])  # remove bottom bin
 CombRaw.slice_range_index(range_lim=[1,1e6])  # remove bottom bin
 
 # Rescale molecular channel to match combined channel gain
-MolGain = 1.33
+#MolGain = 1.33  # updated 4/11/2017
+MolGain = 3.17  # updated 5/12/2017
 Molecular.gain_scale(MolGain)
 
 # Correct Molecular Cross Talk
@@ -516,7 +298,7 @@ Tsonde = temp.profile[isonde,:]
 nWV = wv.WaterVapor_Simple(OnLine,OffLine,Psonde,Tsonde)
 
 nWV.conv(0.3,2.0)
-
+#
 
 dnu = np.linspace(-7e9,7e9,400)
 inuL = np.argmin(np.abs(dnu))
@@ -588,6 +370,30 @@ nWVp = -1.0/(2*(dsig)[np.newaxis,:])*np.diff(np.log(OnLine.profile/OffLine.profi
 #
 #nWVp2 = -1.0/(2*(dsig)[np.newaxis,:])*(np.diff(OnLine.profile,axis=1)/OnLine.mean_dR/OnLine.profile[:,1:]-np.diff(OffLine.profile,axis=1)/OffLine.mean_dR/OffLine.profile[:,1:])
 
+
+if save_as_nc:
+    CombHi.write2nc(ncfilename)
+    Molecular.write2nc(ncfilename)
+    aer_beta_dlb.write2nc(ncfilename)
+    beta_mol_sonde.write2nc(ncfilename)
+    nWV.write2nc(ncfilename)
+    OnLine.write2nc(ncfilename)
+    OffLine.write2nc(ncfilename)
+    if run_MLE and use_geo:
+#        CamList,GmList,GcList,ProfileErrorMol,ProfileErrorComb
+        beta_a_mle.write2nc(ncfilename)
+        alpha_a_mle.write2nc(ncfilename)
+        sLR_mle.write2nc(ncfilename)
+        xvalid_mle.write2nc(ncfilename)
+        fit_mol_mle.write2nc(ncfilename)
+        fit_comb_mle.write2nc(ncfilename)
+
+
+if plotAsDays:
+    time_scale = 3600*24.0
+else:
+    time_scale = 3600.0
+
 plt.figure(figsize=(15,5)); 
 plt.pcolor(OnLine.time/3600,OnLine.range_array*1e-3, np.log10(1e9*OnLine.profile.T/OnLine.binwidth_ns/(dt*7e3)));
 plt.colorbar()
@@ -607,7 +413,8 @@ plt.xlabel('Time [UTC]')
 plt.xlim(HourLim)
 
 lp.pcolor_profiles([nWV,aer_beta_dlb],climits=[[0,12],[-8.0,-4.0]],scale=['linear','log'],plotAsDays=plotAsDays)  # 
-
+if save_figs:
+    plt.savefig(figfilename+'_WaterVapor_AerosolBackscatter.png')
 #plt.figure(figsize=(15,5)); 
 #plt.pcolor(OffLine.time/3600,range_diff*1e-3, np.log10(nWV.T));
 #plt.colorbar()
@@ -627,10 +434,7 @@ lp.pcolor_profiles([nWV,aer_beta_dlb],climits=[[0,12],[-8.0,-4.0]],scale=['linea
 
 
 
-if plotAsDays:
-    time_scale = 3600*24.0
-else:
-    time_scale = 3600.0
+
 
 
 """
